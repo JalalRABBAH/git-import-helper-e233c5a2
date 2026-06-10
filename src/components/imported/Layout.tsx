@@ -6,19 +6,21 @@ import Topbar from "./Topbar";
 
 export default function Layout() {
   const pathname = useLocation({ select: (s) => s.pathname });
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("ireg-dark-mode");
-      if (stored !== null) return stored === "true";
-      return window.matchMedia("(prefers-color-scheme: dark)").matches;
-    }
-    return false;
-  });
+  const [darkMode, setDarkMode] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    const stored = localStorage.getItem("ireg-dark-mode");
+    if (stored !== null) setDarkMode(stored === "true");
+    else setDarkMode(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     localStorage.setItem("ireg-dark-mode", String(darkMode));
     document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+  }, [darkMode, mounted]);
 
   const toggleDarkMode = () => setDarkMode((prev) => !prev);
 
