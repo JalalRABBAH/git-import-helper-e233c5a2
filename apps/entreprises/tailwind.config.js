@@ -8,6 +8,32 @@ export default {
   theme: {
     extend: {
       colors: {
+        navy: {
+          50: "#F0F2F5", 100: "#DDE3E8", 200: "#C2CCD6", 300: "#9AABBD",
+          400: "#5C6B7A", 500: "#2D4056", 600: "#243447", 700: "#1B2838",
+          800: "#142030", 900: "#111C28",
+        },
+        terracotta: {
+          50: "#FBEEEA", 100: "#F5D5CB", 200: "#EAA995", 300: "#DE7D60",
+          400: "#D45F3F", 500: "#C04A2A", 600: "#A03D22", 700: "#7E2F1A",
+          800: "#5C2213", 900: "#3D170D",
+        },
+        gold: {
+          50: "#FBF3E0", 100: "#F4E0A8", 200: "#E8C66B", 300: "#D4A84D",
+          400: "#C9963B", 500: "#B0822F", 600: "#8B6B2A", 700: "#6B5220",
+          800: "#4A3815", 900: "#2D210C",
+        },
+        success: { 50:"#E8F5EE",100:"#C6E6D2",200:"#8FCDA6",300:"#58B47A",400:"#3FA068",500:"#2E8B57",600:"#256F46",700:"#1C5335",800:"#133723",900:"#0A1B12" },
+        warning: { 50:"#FDF1E3",100:"#FADDB8",200:"#F4BC76",300:"#EE9B45",400:"#E8943A",500:"#D17A22",600:"#A6611B",700:"#7C4914",800:"#52300D",900:"#291807" },
+        danger:  { 50:"#FBEAEA",100:"#F4C2C2",200:"#E48585",300:"#D55757",400:"#C73E3E",500:"#A23232",600:"#7E2727",700:"#5A1C1C",800:"#3C1212",900:"#1E0909" },
+        info:    { 50:"#E8F0F9",100:"#C5D7EE",200:"#8AAFDE",300:"#5891D2",400:"#3A7CC7",500:"#2F63A0",600:"#264F80",700:"#1C3B60",800:"#132840",900:"#091420" },
+        "dm-bg-primary": "#111C28",
+        "dm-bg-secondary": "#1B2838",
+        "dm-bg-tertiary": "#243447",
+        "dm-border": "#2D4056",
+        "dm-text-primary": "#E8ECF0",
+        "dm-text-secondary": "#9AABBD",
+        "dm-text-muted": "#5C6B7A",
         "institutional-navy": "#1B2838",
         "institutional-navy-light": "#243447",
         "institutional-navy-lighter": "#2D4056",
@@ -87,6 +113,7 @@ export default {
         "playfair-display": ["Playfair Display", "Georgia", "serif"],
         "inter": ["Inter", "system-ui", "sans-serif"],
         "jetbrains-mono": ["JetBrains Mono", "'Courier New'", "monospace"],
+        "dm-sans": ["DM Sans", "Inter", "system-ui", "sans-serif"],
         sans: ["Inter", "system-ui", "sans-serif"],
         serif: ["Playfair Display", "Georgia", "serif"],
         mono: ["JetBrains Mono", "'Courier New'", "monospace"],
