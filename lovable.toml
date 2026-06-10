@@ -1,0 +1,2 @@
+[run]
+build = "cd apps/entreprises && bun install && bun run build"
