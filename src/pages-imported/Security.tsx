@@ -4,7 +4,7 @@ import {
   ShieldAlert, Ban, AlertTriangle, FileText, Send, X, CheckCircle,
   Clock, TrendingUp, Users, Eye, Lock
 } from 'lucide-react';
-import StatusBadge from '../components/StatusBadge';
+import StatusBadge from '@/components/imported/StatusBadge';
 
 const blacklistData = [
   { id: 'BLK-001', cnib: 'B7654321', nom: 'Karim Touré', motif: 'Documents falsifiés', dateAjout: '15/04/2026', ajoutePar: 'Système', statut: 'active' as const },

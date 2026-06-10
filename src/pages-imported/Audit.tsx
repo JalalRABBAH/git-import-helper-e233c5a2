@@ -4,7 +4,7 @@ import {
   ClipboardCheck, CheckCircle, XCircle, AlertTriangle, Clock,
   ShieldCheck, Users, Package, Receipt, FileText, TrendingUp
 } from 'lucide-react';
-import ComplianceGauge from '../components/ComplianceGauge';
+import ComplianceGauge from '@/components/imported/ComplianceGauge';
 
 const complianceScore = 87;
 const totalPoints = 150;

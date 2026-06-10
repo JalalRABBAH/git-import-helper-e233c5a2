@@ -5,9 +5,9 @@ import {
   Clock, Zap, FileText, ClipboardCheck, ArrowRight, Bell, CheckCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import StatCard from '../components/StatCard';
-import ComplianceGauge from '../components/ComplianceGauge';
-import StatusBadge from '../components/StatusBadge';
+import StatCard from '@/components/imported/StatCard';
+import ComplianceGauge from '@/components/imported/ComplianceGauge';
+import StatusBadge from '@/components/imported/StatusBadge';
 
 const salesData = [
   { month: 'Jan', ventes: 145, objectif: 150 },

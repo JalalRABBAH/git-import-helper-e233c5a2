@@ -8,7 +8,7 @@ import {
   useReactTable, getCoreRowModel, getFilteredRowModel,
   getPaginationRowModel, getSortedRowModel, flexRender, createColumnHelper, type SortingState
 } from '@tanstack/react-table';
-import StatusBadge from '../components/StatusBadge';
+import StatusBadge from '@/components/imported/StatusBadge';
 
 interface Vehicle {
   id: string;

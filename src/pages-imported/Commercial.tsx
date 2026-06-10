@@ -8,7 +8,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Legend
 } from 'recharts';
-import StatusBadge from '../components/StatusBadge';
+import StatusBadge from '@/components/imported/StatusBadge';
 
 const priceData = [
   { month: 'Jan', prixAchat: 785, prixVente: 950, marge: 165 },

@@ -5,7 +5,7 @@ import {
   Download, Eye, ChevronRight, ChevronLeft, ShieldCheck,
   Upload, PenTool, Clock, Printer, X, Lock
 } from 'lucide-react';
-import ComplianceGauge from '../components/ComplianceGauge';
+import ComplianceGauge from '@/components/imported/ComplianceGauge';
 
 const checklistItems = [
   { id: 1, label: 'Déclaration des stocks de début de trimestre', completed: true, required: true },
