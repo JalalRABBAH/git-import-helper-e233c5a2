@@ -1,0 +1,29 @@
+# ============================================================================
+# Backend — Service
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: ireg-moto-bf
+  annotations:
+    description: "API iReg Moto BF - Service interne"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  sessionAffinity: None

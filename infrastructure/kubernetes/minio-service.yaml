@@ -1,0 +1,26 @@
+# ============================================================================
+# MinIO — Service
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: ireg-moto-bf
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: minio
+  ports:
+    - name: s3-api
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: console
+      port: 9001
+      targetPort: 9001
+      protocol: TCP

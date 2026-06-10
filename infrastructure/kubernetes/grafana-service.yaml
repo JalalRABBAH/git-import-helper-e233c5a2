@@ -1,0 +1,25 @@
+# ============================================================================
+# Grafana — Service
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: ireg-monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: dashboards
+    app.kubernetes.io/part-of: ireg-moto-bf
+  annotations:
+    # Ingress monitoring séparé
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

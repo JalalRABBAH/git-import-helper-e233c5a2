@@ -1,0 +1,100 @@
+@import "@fontsource/playfair-display/400.css";
+@import "@fontsource/playfair-display/500.css";
+@import "@fontsource/playfair-display/600.css";
+@import "@fontsource/playfair-display/700.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 96%;
+    --foreground: 213 30% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 213 30% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 213 30% 16%;
+    --primary: 213 30% 16%;
+    --primary-foreground: 210 20% 96%;
+    --secondary: 210 14% 97%;
+    --secondary-foreground: 213 30% 16%;
+    --muted: 210 14% 97%;
+    --muted-foreground: 210 10% 55%;
+    --accent: 39 55% 51%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 60% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 18% 89%;
+    --input: 210 18% 89%;
+    --ring: 39 55% 51%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 213 30% 11%;
+    --foreground: 210 20% 93%;
+    --card: 213 30% 16%;
+    --card-foreground: 210 20% 93%;
+    --popover: 213 30% 16%;
+    --popover-foreground: 210 20% 93%;
+    --primary: 39 55% 51%;
+    --primary-foreground: 213 30% 16%;
+    --secondary: 213 25% 20%;
+    --secondary-foreground: 210 20% 93%;
+    --muted: 213 25% 20%;
+    --muted-foreground: 213 15% 55%;
+    --accent: 39 55% 51%;
+    --accent-foreground: 213 30% 16%;
+    --destructive: 0 60% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 213 25% 26%;
+    --input: 213 25% 26%;
+    --ring: 39 55% 51%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-inter;
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .card-shadow {
+    box-shadow: 0 1px 3px rgba(27,40,56,0.06), 0 1px 2px rgba(27,40,56,0.04);
+  }
+
+  .card-shadow-hover {
+    box-shadow: 0 8px 24px rgba(27,40,56,0.10);
+  }
+
+  .bf-badge-gradient {
+    background: linear-gradient(135deg, #C73E3E, #C9963B, #2E8B57);
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(90deg, #EDF1F4 25%, #F5F7FA 50%, #EDF1F4 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

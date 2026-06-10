@@ -1,0 +1,42 @@
+# ============================================================================
+# Nginx — Service (LoadBalancer externe)
+# ============================================================================
+# Point d'entrée public de l'application
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: ireg-moto-bf
+  annotations:
+    # Annotations selon le cloud provider
+    # AWS
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "http"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/health"
+    # Azure (décommenter si Azure)
+    # service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/health"
+    # service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "10"
+    # GCP (décommenter si GCP)
+    # networking.gke.io/load-balancer-type: "External"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 8080
+      protocol: TCP
+  sessionAffinity: None
+  externalTrafficPolicy: Local  # Préserver l'IP client

@@ -1,0 +1,330 @@
+# ============================================================================
+# Backend — NestJS API Deployment
+# ============================================================================
+# Application principale : métier réglementaire, conformité deux-roues
+# Scalable horizontalement, stateless
+# ============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: ireg-moto-bf
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 3  # Minimum pour HA (99.9%)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero-downtime deployment
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: ireg-moto-bf
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+        # Rollout trigger
+        rollme: "{{ randAlphaNum 5 }}"
+    spec:
+      serviceAccountName: ireg-backend-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Pull secret pour le registry privé
+      imagePullSecrets:
+        - name: ireg-registry-secret
+
+      initContainers:
+        # Attendre que PostgreSQL soit prêt
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              until nc -z postgres-service 5432;
+              do
+                echo "Waiting for PostgreSQL...";
+                sleep 2;
+              done;
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "10m"
+
+        # Attendre que Redis soit prêt
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              until nc -z redis-service 6379;
+              do
+                echo "Waiting for Redis...";
+                sleep 2;
+              done;
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "10m"
+
+        # Attendre que RabbitMQ soit prêt
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              until nc -z rabbitmq-service 5672;
+              do
+                echo "Waiting for RabbitMQ...";
+                sleep 2;
+              done;
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "10m"
+
+        # Exécution des migrations Prisma
+        - name: db-migrate
+          image: "${REGISTRY_URL}/ireg-moto-bf/backend:${VERSION}"
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom:
+            - configMapRef:
+                name: ireg-backend-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: database-url
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "100m"
+
+      containers:
+        - name: backend
+          image: "${REGISTRY_URL}/ireg-moto-bf/backend:${VERSION}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: ireg-backend-config
+
+          env:
+            # Variables sensibles injectées via secrets
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: database-url
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: db-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: redis-password
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: s3-secret-key
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: rabbitmq-user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: rabbitmq-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: jwt-secret
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: jwt-refresh-secret
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: encryption-key
+            - name: SMS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: sms-api-key
+                  optional: true
+            - name: PAYMENT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ireg-backend-secrets
+                  key: payment-api-key
+                  optional: true
+
+          volumeMounts:
+            # Espace temporaire pour uploads/fichiers temporaires
+            - name: tmp
+              mountPath: /tmp
+            # Cache offline
+            - name: offline-cache
+              mountPath: /app/cache
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: offline-cache
+          emptyDir:
+            sizeLimit: 500Mi
+
+      # Répartition des pods
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - backend
+                topologyKey: kubernetes.io/hostname
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - backend
+                topologyKey: topology.kubernetes.io/zone
+
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "app"
+          effect: "NoSchedule"
+
+      terminationGracePeriodSeconds: 60

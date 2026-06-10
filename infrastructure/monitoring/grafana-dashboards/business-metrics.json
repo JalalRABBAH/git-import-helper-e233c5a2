@@ -1,0 +1,180 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "ireg-business",
+    "title": "iReg Moto BF — Métriques Métier",
+    "tags": ["ireg", "business", "conformité"],
+    "timezone": "Africa/Ouagadougou",
+    "schemaVersion": 36,
+    "refresh": "60s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Rapports soumis (aujourd'hui)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(ireg_business_reports_submitted_total[1d]))",
+            "legendFormat": "Rapports"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {"fixedColor": "blue", "mode": "fixed"}
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Taux de conformité",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "(1 - (sum(rate(ireg_business_non_compliant_total[1d])) / sum(rate(ireg_business_reports_submitted_total[1d])))) * 100",
+            "legendFormat": "Conformité %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "green", "value": 90}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Points de vente actifs",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ireg_business_active_pos_total",
+            "legendFormat": "PdV Actifs"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "short"}
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Documents uploadés",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(ireg_business_documents_uploaded_total[1d]))",
+            "legendFormat": "Documents"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "short"}
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Rapports soumis par heure (7 derniers jours)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(increase(ireg_business_reports_submitted_total[1h])) by (region)",
+            "legendFormat": "{{region}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "short"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      },
+      {
+        "id": 6,
+        "title": "Évolutions conformité / non-conformité",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(ireg_business_compliant_total[1h]))",
+            "legendFormat": "Conformes"
+          },
+          {
+            "expr": "sum(rate(ireg_business_non_compliant_total[1h]))",
+            "legendFormat": "Non-conformes"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "short"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+      },
+      {
+        "id": 7,
+        "title": "Top 10 points de vente (rapports)",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (pos_id, pos_name) (ireg_business_reports_submitted_total))",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}
+      },
+      {
+        "id": 8,
+        "title": "Échecs de synchronisation offline",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ireg_business_sync_failures_total",
+            "legendFormat": "Échecs"
+          },
+          {
+            "expr": "ireg_business_sync_queue_size",
+            "legendFormat": "File d'attente"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "short"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}
+      },
+      {
+        "id": 9,
+        "title": "Types de non-conformité",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (type) (ireg_business_non_compliant_total)",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20}
+      },
+      {
+        "id": 10,
+        "title": "Temps moyen de traitement rapport",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ireg_business_report_processing_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "s"}
+        },
+        "gridPos": {"h": 8, "w": 16, "x": 8, "y": 20}
+      }
+    ]
+  }
+}

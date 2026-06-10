@@ -1,0 +1,77 @@
+# ============================================================================
+# Backend — Horizontal Pod Autoscaler
+# ============================================================================
+# Scaling automatique basé sur CPU, mémoire et métriques personnalisées
+# ============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: autoscaler
+    app.kubernetes.io/part-of: ireg-moto-bf
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 3  # Minimum pour 99.9% SLA
+  maxReplicas: 20  # Capacité max pour 2000+ points de vente
+  metrics:
+    # Scaling sur CPU
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scaling sur mémoire
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5 min avant scale down
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Min
+---
+# ============================================================================
+# Backend — Pod Disruption Budget
+# ============================================================================
+# Garantit la disponibilité pendant les opérations de cluster
+# ============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: pdb
+spec:
+  minAvailable: 2  # Toujours 2 pods minimum
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend

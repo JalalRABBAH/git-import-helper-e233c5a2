@@ -1,0 +1,30 @@
+# ============================================================================
+# RabbitMQ — Service
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-service
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: ireg-moto-bf
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+      protocol: TCP
+    - name: management
+      port: 15672
+      targetPort: 15672
+      protocol: TCP
+    - name: prometheus
+      port: 15692
+      targetPort: 15692
+      protocol: TCP

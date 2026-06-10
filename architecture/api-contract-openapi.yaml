@@ -1,0 +1,4235 @@
+openapi: 3.0.3
+info:
+  title: iReg Moto BF API
+  description: >
+    API réglementaire pour la conformité des deux-roues motorisés au Burkina Faso.
+    Plateforme SaaS interfaçant importateurs, distributeurs, unités d'assemblage,
+    détaillants et le ministère des transports (DRCTT).
+    Supporte REST (mutations métier) et GraphQL (analytics).
+  version: 1.0.0
+  contact:
+    name: iReg Moto BF Technical Team
+    email: tech@ireg-moto.bf
+  license:
+    name: Proprietary
+    url: https://ireg-moto.bf/licence
+
+servers:
+  - url: https://api.ireg-moto.bf/v1
+    description: Production
+  - url: https://api-staging.ireg-moto.bf/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Auth
+    description: Authentification et autorisation (JWT + OAuth2 + MFA)
+  - name: Acteurs
+    description: MODULE A — Gestion des acteurs économiques
+  - name: Vehicules
+    description: MODULE B — Gestion des véhicules et catégories
+  - name: Stocks
+    description: MODULE B — Gestion des stocks, inventaires et mouvements
+  - name: Clients
+    description: MODULE C — Gestion clientèle, KYC et traçabilité
+  - name: Ventes
+    description: MODULE D — Gestion commerciale, ventes et facturation
+  - name: Pricing
+    description: MODULE D — Pricing, marges et historique
+  - name: Rapports
+    description: MODULE E — Rapportage trimestriel automatique
+  - name: Conformite
+    description: MODULE F — Contrôle et conformité réglementaire
+  - name: Securite
+    description: MODULE G — Lutte contre l'insécurité et fraude
+  - name: Admin
+    description: MODULE H — Portail administratif et analytics
+  - name: Ministere
+    description: MODULE H — APIs portail ministère
+  - name: Webhooks
+    description: Gestion des webhooks
+
+paths:
+  # ==========================================================================
+  # AUTH
+  # ==========================================================================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authentification par email/mot de passe
+      description: >
+        Authentifie un utilisateur et retourne un JWT access token.
+        Si MFA est requis pour ce profil, retourne un token temporaire
+        et nécessite une vérification MFA.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentification réussie (ou MFA requis)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Compte verrouillé ou suspendu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rafraîchissement du token d'accès
+      description: >
+        Échange un refresh token valide contre un nouveau couple
+        access token + refresh token (rotation sécurisée).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token JWT
+                  example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Nouveaux tokens générés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/mfa/setup:
+    post:
+      tags: [Auth]
+      summary: Configuration MFA (TOTP)
+      description: >
+        Génère un secret TOTP et un QR code pour l'enregistrement
+        dans une application d'authentification (Google Authenticator, Authy).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaType]
+              properties:
+                mfaType:
+                  type: string
+                  enum: [TOTP, SMS]
+                  example: TOTP
+      responses:
+        '200':
+          description: Secret MFA généré
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                    example: JBSWY3DPEHPK3PXP
+                  qrCodeUrl:
+                    type: string
+                    format: uri
+                    example: otpauth://totp/iRegMoto:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=iRegMoto
+                  backupCodes:
+                    type: array
+                    items:
+                      type: string
+                    example: ["12345678", "87654321", "11223344"]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/mfa/verify:
+    post:
+      tags: [Auth]
+      summary: Vérification MFA
+      description: >
+        Vérifie un code TOTP ou SMS et finalise l'authentification.
+        Retourne les tokens JWT définitifs après validation MFA.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tempToken, mfaCode]
+              properties:
+                tempToken:
+                  type: string
+                  description: Token temporaire retourné par /auth/login
+                mfaCode:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+                  description: Code TOTP à 6 chiffres
+                  example: "123456"
+                mfaType:
+                  type: string
+                  enum: [TOTP, SMS, BACKUP_CODE]
+                  default: TOTP
+      responses:
+        '200':
+          description: MFA validé, authentification complète
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Code MFA invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/oauth/callback:
+    post:
+      tags: [Auth]
+      summary: Callback OAuth2 (Google, Microsoft)
+      description: >
+        Échange un code d'autorisation OAuth2 contre un compte iReg.
+        Crée le compte s'il n'existe pas (first login).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, code]
+              properties:
+                provider:
+                  type: string
+                  enum: [GOOGLE, MICROSOFT]
+                code:
+                  type: string
+                  description: Code d'autorisation OAuth2
+                redirectUri:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Authentification OAuth réussie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Déconnexion
+      description: >
+        Révoque le token d'accès courant et ajoute le refresh token
+        à la liste noire Redis.
+      responses:
+        '204':
+          description: Déconnexion réussie
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Profil utilisateur connecté
+      description: Retourne les informations du utilisateur authentifié.
+      responses:
+        '200':
+          description: Profil utilisateur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # ACTEURS (MODULE A)
+  # ==========================================================================
+  /actors:
+    get:
+      tags: [Acteurs]
+      summary: Liste des acteurs économiques
+      description: >
+        Retourne la liste paginée des acteurs économiques avec filtres.
+        Un importateur ne voit que son propre acteur. Un admin voit tous.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, SUSPENDED, REVOKED, EXPIRED]
+        - name: actorType
+          in: query
+          schema:
+            type: string
+            enum: [IMPORTATEUR, DISTRIBUTEUR, ASSEMBLEUR, DETAILLANT, PRESTATAIRE]
+        - name: region
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Recherche par nom, NIF, RCCM
+        - name: complianceScoreMin
+          in: query
+          schema: { type: number, minimum: 0, maximum: 100 }
+        - name: agreementStatus
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, EXPIRED]
+      responses:
+        '200':
+          description: Liste des acteurs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedActors'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Acteurs]
+      summary: Créer un acteur économique
+      description: >
+        Crée un nouvel acteur économique avec statut PENDING.
+        Déclenche le workflow d'agrément.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateActorRequest'
+      responses:
+        '201':
+          description: Acteur créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Actor'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: NIF ou email déjà existant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /actors/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Acteurs]
+      summary: Détail d'un acteur
+      responses:
+        '200':
+          description: Détail acteur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Acteurs]
+      summary: Modifier un acteur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateActorRequest'
+      responses:
+        '200':
+          description: Acteur mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Actor'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /actors/{id}/documents:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Acteurs]
+      summary: Documents d'un acteur
+      responses:
+        '200':
+          description: Liste des documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ActorDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Acteurs]
+      summary: Ajouter un document à un acteur
+      description: Upload d'un document KYC (multipart/form-data).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, documentType]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                documentType:
+                  type: string
+                  enum: [REGISTRE_COMMERCE, NIF, ASSURANCE, CERTIFICATE_ORIGIN, CONTRAT_DISTRIBUTION, CERT_AGREEMENT, LOCAL_CONTENT_PLAN]
+                documentLabel:
+                  type: string
+                issuedDate:
+                  type: string
+                  format: date
+                expiryDate:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Document ajouté
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorDocument'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Fichier trop volumineux (max 10MB)
+
+  /actors/{id}/warehouses:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Acteurs]
+      summary: Entrepôts d'un acteur
+      responses:
+        '200':
+          description: Liste des entrepôts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Warehouse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Acteurs]
+      summary: Créer un entrepôt pour un acteur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWarehouseRequest'
+      responses:
+        '201':
+          description: Entrepôt créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /actors/{id}/agreement:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    post:
+      tags: [Acteurs]
+      summary: Soumettre une demande d'agrément
+      responses:
+        '202':
+          description: Demande soumise pour révision
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==========================================================================
+  # VÉHICULES (MODULE B)
+  # ==========================================================================
+  /vehicles:
+    get:
+      tags: [Vehicules]
+      summary: Liste des véhicules
+      description: Recherche et liste des véhicules avec filtres avancés.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: vin
+          in: query
+          schema: { type: string, pattern: '^[A-HJ-NPR-Z0-9]{17}$' }
+          description: Recherche par VIN exact
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [IMPORTED, IN_STOCK, RESERVED, SOLD, REGISTERED, STOLEN, SCRAPPED, EXPORTED]
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [CYCLOMOTEUR_50CC, MOTO_LEGERE_125CC, MOTO_LOURDE_125CC_PLUS, TRICYCLE_MOTEUR, QUADRACYCLE, ELECTRIQUE_50CC_EQ, ELECTRIQUE_125CC_EQ, ELECTRIQUE_PLUS]
+        - name: manufacturer
+          in: query
+          schema: { type: string }
+        - name: model
+          in: query
+          schema: { type: string }
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filtrer par acteur propriétaire
+        - name: warehouseId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: importDateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: importDateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: isBlacklisted
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Liste des véhicules
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedVehicles'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Vehicules]
+      summary: Enregistrer un véhicule (import/assemblage)
+      description: >
+        Enregistre un nouveau véhicule dans le système.
+        Vérifie automatiquement que la catégorie est autorisée
+        et que l'homologation est valide.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleRequest'
+      responses:
+        '201':
+          description: Véhicule enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Véhicule non conforme (catégorie interdite)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicles/{vin}:
+    parameters:
+      - name: vin
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+
+    get:
+      tags: [Vehicules]
+      summary: Détail d'un véhicule par VIN
+      description: >
+        Retourne les informations complètes d'un véhicule
+        incluant son historique de propriété et son statut de conformité.
+      responses:
+        '200':
+          description: Détail véhicule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Vehicules]
+      summary: Modifier un véhicule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVehicleRequest'
+      responses:
+        '200':
+          description: Véhicule mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vehicles/{vin}/ownership-history:
+    parameters:
+      - name: vin
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+    get:
+      tags: [Vehicules]
+      summary: Historique de propriété d'un véhicule
+      responses:
+        '200':
+          description: Historique de propriété
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VehicleOwnership'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vehicles/{vin}/qr-generate:
+    parameters:
+      - name: vin
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+    post:
+      tags: [Vehicules]
+      summary: Générer un QR code pour un véhicule
+      description: >
+        Génère un QR code unique contenant les informations
+        essentielles du véhicule (VIN, catégorie, conformité).
+      responses:
+        '200':
+          description: QR code généré
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qrCode:
+                    type: string
+                    description: Données encodées dans le QR
+                  qrImageUrl:
+                    type: string
+                    format: uri
+                    description: URL de l'image PNG du QR code
+                  generatedAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vehicles/blacklist:
+    get:
+      tags: [Vehicules]
+      summary: Liste noire des véhicules
+      description: Liste des véhicules signalés (vol, fraude, contrefaçon).
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: reason
+          in: query
+          schema:
+            type: string
+            enum: [STOLEN, FRAUD, COUNTERFEIT, NON_COMPLIANT, ADMIN_SEIZURE, INSURANCE_TOTAL_LOSS]
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Recherche par VIN
+        - name: isActive
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Liste noire
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VehicleBlacklistEntry'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Vehicules]
+      summary: Ajouter un véhicule à la liste noire
+      description: >
+        Signale un véhicule comme volé, frauduleux ou contrefait.
+        Nécessite le rôle CONTROLEUR, CNTI_AGENT ou ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBlacklistEntryRequest'
+      responses:
+        '201':
+          description: Véhicule ajouté à la liste noire
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleBlacklistEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==========================================================================
+  # STOCKS (MODULE B)
+  # ==========================================================================
+  /stocks/movements:
+    get:
+      tags: [Stocks]
+      summary: Mouvements de stock
+      description: Historique des mouvements de stock avec filtres.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: vehicleId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: warehouseId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: movementType
+          in: query
+          schema:
+            type: string
+            enum: [IMPORT, ASSEMBLY, TRANSFER, SALE, RETURN, ADJUSTMENT, SCRAP, RESERVATION, RELEASE]
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Liste des mouvements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StockMovement'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Stocks]
+      summary: Enregistrer un mouvement de stock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStockMovementRequest'
+      responses:
+        '201':
+          description: Mouvement enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockMovement'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Stock insuffisant ou véhicule non disponible
+
+  /stocks/inventory:
+    get:
+      tags: [Stocks]
+      summary: Inventaires de stock
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: warehouseId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PLANNED, IN_PROGRESS, COMPLETED, RECONCILED, DISCREPANCY_FOUND]
+      responses:
+        '200':
+          description: Liste des inventaires
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryCount'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Stocks]
+      summary: Créer un inventaire
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseId, plannedDate]
+              properties:
+                warehouseId:
+                  type: string
+                  format: uuid
+                plannedDate:
+                  type: string
+                  format: date
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Inventaire créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryCount'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /stocks/summary:
+    get:
+      tags: [Stocks]
+      summary: Résumé des stocks par entrepôt
+      description: >
+        Retourne un résumé des stocks par catégorie et entrepôt.
+        Utilisé pour le tableau de bord.
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: warehouseId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Résumé des stocks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category:
+                          type: string
+                        categoryLabel:
+                          type: string
+                        totalUnits:
+                          type: integer
+                        totalValue:
+                          type: number
+                        warehouseId:
+                          type: string
+                        warehouseName:
+                          type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # CLIENTS (MODULE C)
+  # ==========================================================================
+  /clients:
+    get:
+      tags: [Clients]
+      summary: Liste des clients
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING_KYC, KYC_VERIFIED, KYC_REJECTED, BLACKLISTED]
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Recherche par nom, téléphone, numéro document
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filtrer par acteur enregistreur
+        - name: hasPendingKYC
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Liste des clients
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Clients]
+      summary: Créer un client (KYC)
+      description: >
+        Enregistre un nouveau client avec ses informations KYC.
+        Déclenche la vérification automatique si tous les documents sont fournis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientRequest'
+      responses:
+        '201':
+          description: Client créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Client avec même numéro de document déjà existant
+
+  /clients/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Clients]
+      summary: Détail d'un client
+      responses:
+        '200':
+          description: Détail client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Clients]
+      summary: Modifier un client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClientRequest'
+      responses:
+        '200':
+          description: Client mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /clients/{id}/vehicles:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Clients]
+      summary: Véhicules d'un client
+      description: Liste des véhicules possédés par le client.
+      responses:
+        '200':
+          description: Liste des véhicules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VehicleOwnership'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /clients/{id}/documents:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Clients]
+      summary: Documents KYC d'un client
+      responses:
+        '200':
+          description: Liste des documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ClientDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Clients]
+      summary: Ajouter un document KYC
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, documentType]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                documentType:
+                  type: string
+                  enum: [CNI_FRONT, CNI_BACK, PASSPORT, SELFIE, PROOF_ADDRESS]
+      responses:
+        '201':
+          description: Document ajouté
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /clients/{id}/verify-kyc:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Clients]
+      summary: Vérifier le KYC d'un client
+      description: >
+        Marque le KYC du client comme vérifié après contrôle
+        des documents par un agent. Nécessite le rôle CONTROLEUR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [KYC_VERIFIED, KYC_REJECTED]
+                notes:
+                  type: string
+                riskLevel:
+                  type: string
+                  enum: [LOW, MEDIUM, HIGH]
+      responses:
+        '200':
+          description: KYC mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================================================
+  # VENTES (MODULE D)
+  # ==========================================================================
+  /sales:
+    get:
+      tags: [Ventes]
+      summary: Liste des ventes
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, PENDING_PAYMENT, PAID, PARTIALLY_PAID, CANCELLED, REFUNDED]
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: clientId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: paymentMethod
+          in: query
+          schema:
+            type: string
+            enum: [CASH, BANK_TRANSFER, MOBILE_MONEY, CHEQUE, CREDIT, INSTALLMENT]
+        - name: minAmount
+          in: query
+          schema: { type: number }
+        - name: maxAmount
+          in: query
+          schema: { type: number }
+      responses:
+        '200':
+          description: Liste des ventes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSales'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Ventes]
+      summary: Enregistrer une vente
+      description: >
+        Enregistre une vente de véhicule avec facturation OHADA.
+        Vérifie automatiquement : blacklist, conformité, stock disponible.
+        Déclenche la détection de fraude post-vente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSaleRequest'
+      responses:
+        '201':
+          description: Vente enregistrée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Vente bloquée (blacklist, non-conformité, stock indisponible)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sales/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Ventes]
+      summary: Détail d'une vente
+      responses:
+        '200':
+          description: Détail vente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Ventes]
+      summary: Modifier une vente (avant finalisation)
+      description: Modification possible uniquement si statut DRAFT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSaleRequest'
+      responses:
+        '200':
+          description: Vente mise à jour
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Vente non modifiable (statut avancé)
+
+  /sales/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Ventes]
+      summary: Annuler une vente
+      description: >
+        Annule une vente et restaure le stock.
+        Nécessite une justification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+      responses:
+        '200':
+          description: Vente annulée
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Vente déjà annulée ou trop ancienne (> 30 jours)
+
+  /sales/{id}/invoice:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Ventes]
+      summary: Télécharger la facture OHADA
+      description: >
+        Retourne la facture PDF signée électroniquement
+        conforme aux normes OHADA.
+      responses:
+        '200':
+          description: Facture PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================================================
+  # PRICING (MODULE D)
+  # ==========================================================================
+  /pricing/history:
+    get:
+      tags: [Pricing]
+      summary: Historique des prix
+      description: >
+        Retourne l'historique des prix d'achat et de vente
+        avec calcul automatique des marges.
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: vehicleCategoryId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: manufacturer
+          in: query
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Historique des prix
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PricingHistoryEntry'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Pricing]
+      summary: Enregistrer un prix d'achat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchasePriceRequest'
+      responses:
+        '201':
+          description: Prix enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchasePrice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /pricing/margins:
+    get:
+      tags: [Pricing]
+      summary: Analyse des marges
+      description: >
+        Retourne l'analyse des marges par catégorie,
+        fabricant et période. Détecte les anomalies.
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [CATEGORY, MANUFACTURER, MODEL, MONTH]
+          default: CATEGORY
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Analyse des marges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        groupKey:
+                          type: string
+                        groupLabel:
+                          type: string
+                        avgPurchasePrice:
+                          type: number
+                        avgSellingPrice:
+                          type: number
+                        avgMarginRate:
+                          type: number
+                        totalSales:
+                          type: integer
+                        totalRevenue:
+                          type: number
+                        anomalyCount:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /pricing/anomalies:
+    get:
+      tags: [Pricing]
+      summary: Détecter les anomalies de prix
+      description: >
+        Liste les ventes avec des marges anormales
+        (trop faibles ou trop élevées par rapport au marché).
+      parameters:
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Anomalies détectées
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        saleId:
+                          type: string
+                        vehicleVin:
+                          type: string
+                        anomalyType:
+                          type: string
+                        expectedMargin:
+                          type: number
+                        actualMargin:
+                          type: number
+                        severity:
+                          type: string
+                        detectedAt:
+                          type: string
+                          format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # RAPPORTS (MODULE E)
+  # ==========================================================================
+  /reports/quarterly/generate:
+    post:
+      tags: [Rapports]
+      summary: Générer un rapport trimestriel
+      description: >
+        Lance la génération asynchrone d'un rapport trimestriel.
+        Le rapport inclut : ventes, achats, stocks, conformité, taxes.
+        Retourne immédiatement avec statut PROCESSING.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [year, quarter]
+              properties:
+                year:
+                  type: integer
+                  minimum: 2025
+                  maximum: 2100
+                  example: 2026
+                quarter:
+                  type: string
+                  enum: [Q1, Q2, Q3, Q4]
+                  example: Q2
+      responses:
+        '202':
+          description: Génération lancée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: GENERATING
+                  estimatedCompletion:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Rapport déjà généré ou en cours
+
+  /reports/quarterly/status/{reportId}:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Rapports]
+      summary: Statut d'un rapport
+      responses:
+        '200':
+          description: Statut du rapport
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [DRAFT, GENERATING, READY, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, AMENDMENT_REQUIRED]
+                  progress:
+                    type: integer
+                    description: Pourcentage de génération (0-100)
+                  downloadUrls:
+                    type: object
+                    properties:
+                      xml:
+                        type: string
+                        format: uri
+                      pdf:
+                        type: string
+                        format: uri
+                  generatedAt:
+                    type: string
+                    format: date-time
+                  submittedAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reports/quarterly/submit:
+    post:
+      tags: [Rapports]
+      summary: Soumettre un rapport au ministère
+      description: >
+        Soumet le rapport trimestriel généré au portail
+        du ministère pour révision. Déclenche les notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reportId]
+              properties:
+                reportId:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+                  description: Notes accompagnant la soumission
+      responses:
+        '200':
+          description: Rapport soumis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportId:
+                    type: string
+                  status:
+                    type: string
+                    example: SUBMITTED
+                  acknowledgmentNumber:
+                    type: string
+                    example: RPT-2026-Q2-0001234
+                  submittedAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Rapport non prêt ou déjà soumis
+
+  /reports/quarterly/deadlines:
+    get:
+      tags: [Rapports]
+      summary: Échéances de rapportage
+      description: >
+        Retourne les échéances de rapportage pour l'acteur connecté
+        avec les jours restants et les alertes.
+      responses:
+        '200':
+          description: Échéances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentQuarter:
+                    type: string
+                    example: Q2-2026
+                  deadline:
+                    type: string
+                    format: date
+                    example: '2026-07-15'
+                  daysRemaining:
+                    type: integer
+                    example: 30
+                  status:
+                    type: string
+                    enum: [NOT_STARTED, IN_PROGRESS, READY, SUBMITTED, OVERDUE]
+                  alertLevel:
+                    type: string
+                    enum: [NONE, INFO, WARNING, CRITICAL]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # CONFORMITÉ (MODULE F)
+  # ==========================================================================
+  /compliance/rules:
+    get:
+      tags: [Conformite]
+      summary: Liste des règles de conformité
+      description: >
+        Retourne toutes les règles de conformité actives.
+        Les admins peuvent voir toutes les règles.
+      parameters:
+        - name: ruleType
+          in: query
+          schema:
+            type: string
+            enum: [DOCUMENT, VEHICLE_SPEC, PRICING, STOCK, KYC, TIMING, CUSTOMS, TAX]
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [INFO, WARNING, CRITICAL, BLOCKER]
+        - name: isActive
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Liste des règles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /compliance/checklist:
+    get:
+      tags: [Conformite]
+      summary: Checklist de conformité d'un acteur
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: checklistId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Checklist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checklist:
+                    $ref: '#/components/schemas/ComplianceChecklist'
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceChecklistItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Conformite]
+      summary: Lancer une évaluation de conformité
+      description: >
+        Lance l'évaluation automatique de toutes les règles
+        applicables à un acteur. Crée une checklist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorId]
+              properties:
+                actorId:
+                  type: string
+                  format: uuid
+                checklistType:
+                  type: string
+                  enum: [SELF_ASSESSMENT, INSPECTION, AUDIT]
+                  default: SELF_ASSESSMENT
+      responses:
+        '201':
+          description: Évaluation lancée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceChecklist'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /compliance/checklist/{checklistId}/items/{itemId}:
+    parameters:
+      - name: checklistId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Conformite]
+      summary: Évaluer un item de checklist
+      description: >
+        Met à jour le statut d'un item de checklist
+        (PASS, FAIL, NA) avec notes et preuve.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [PASS, FAIL, NA]
+                observedValue:
+                  type: string
+                notes:
+                  type: string
+                evidenceDocumentId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Item mis à jour
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /compliance/score:
+    get:
+      tags: [Conformite]
+      summary: Score de conformité
+      description: >
+        Retourne le score de conformité calculé pour un acteur
+        avec le détail par dimension.
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Score de conformité
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceScore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /compliance/countdown:
+    get:
+      tags: [Conformite]
+      summary: Compte à rebours avant sanction
+      description: >
+        Retourne le nombre de jours restants avant
+        une éventuelle sanction administrative.
+      parameters:
+        - name: actorId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Compte à rebours
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actorId:
+                    type: string
+                  countdownDays:
+                    type: integer
+                    description: Jours restants (0 = sanction imminente, -1 = pas de risque)
+                  alertLevel:
+                    type: string
+                    enum: [NONE, INFO, WARNING, CRITICAL]
+                  nextDeadline:
+                    type: string
+                    format: date
+                  complianceScore:
+                    type: number
+                  criticalFailures:
+                    type: integer
+                  recommendations:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # SÉCURITÉ (MODULE G)
+  # ==========================================================================
+  /security/alerts:
+    get:
+      tags: [Securite]
+      summary: Alertes de fraude
+      description: Liste des alertes de sécurité et fraude.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, UNDER_INVESTIGATION, CONFIRMED, FALSE_POSITIVE, CLOSED, ESCALATED]
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignedTo
+          in: query
+          schema: { type: string, format: uuid }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Liste des alertes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FraudAlert'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /security/alerts/{id}/investigate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Securite]
+      summary: Assigner une alerte pour investigation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assigneeId:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Alerte assignée
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /security/alerts/{id}/resolve:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Securite]
+      summary: Résoudre une alerte
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution, resolutionAction]
+              properties:
+                resolution:
+                  type: string
+                  enum: [CONFIRMED, FALSE_POSITIVE]
+                resolutionAction:
+                  type: string
+                  enum: [BLOCKED, ESCALATED, NO_ACTION, WARNING_ISSUED]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Alerte résolue
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /security/blacklist:
+    get:
+      tags: [Securite]
+      summary: Liste noire de sécurité
+      description: Entités blacklistées (véhicules, clients, acteurs).
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [VEHICLE, CLIENT, ACTOR, USER, VIN_PATTERN]
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean, default: true }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Liste noire
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SecurityBlacklistEntry'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Securite]
+      summary: Ajouter une entrée à la liste noire
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecurityBlacklistRequest'
+      responses:
+        '201':
+          description: Entrée ajoutée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityBlacklistEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /security/flag-transaction:
+    post:
+      tags: [Securite]
+      summary: Signaler une transaction suspecte
+      description: >
+        Signale manuellement une transaction comme suspecte.
+        Déclenche une investigation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [saleId, flagType, description]
+              properties:
+                saleId:
+                  type: string
+                  format: uuid
+                flagType:
+                  type: string
+                  enum: [PRICE_ANOMALY, VOLUME_ANOMALY, CIRCULAR_TRADE, BLACKLISTED_VEHICLE, SUSPICIOUS_CLIENT, GEO_ANOMALY, TIMING_ANOMALY, MULTIPLE_SAME_DAY]
+                description:
+                  type: string
+                severity:
+                  type: string
+                  enum: [LOW, MEDIUM, HIGH, CRITICAL]
+                  default: MEDIUM
+      responses:
+        '201':
+          description: Transaction signalée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionFlag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /security/verify-vin:
+    get:
+      tags: [Securite]
+      summary: Vérifier un VIN (contrôleurs)
+      description: >
+        Vérifie rapidement si un VIN est enregistré,
+        conforme, et s'il figure sur une liste noire.
+        API optimisée pour les contrôleurs sur le terrain.
+      parameters:
+        - name: vin
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+      responses:
+        '200':
+          description: Résultat vérification
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vin:
+                    type: string
+                  isRegistered:
+                    type: boolean
+                  vehicle:
+                    type: object
+                    properties:
+                      manufacturer:
+                        type: string
+                      model:
+                        type: string
+                      category:
+                        type: string
+                      status:
+                        type: string
+                  isBlacklisted:
+                    type: boolean
+                  blacklistInfo:
+                    type: object
+                    properties:
+                      reason:
+                        type: string
+                      reasonDetails:
+                        type: string
+                      reportedAt:
+                        type: string
+                        format: date-time
+                  isCompliant:
+                    type: boolean
+                  complianceScore:
+                    type: number
+                  ownerInfo:
+                    type: object
+                    properties:
+                      actorName:
+                        type: string
+                      clientName:
+                        type: string
+                  lastVerifiedAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==========================================================================
+  # ADMIN (MODULE H)
+  # ==========================================================================
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: Tableau de bord administratif
+      description: >
+        KPIs nationaux pour les administrateurs DRCTT :
+        nombre d'acteurs, conformité globale, ventes, alertes.
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [TODAY, WEEK, MONTH, QUARTER, YEAR]
+          default: MONTH
+        - name: region
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Tableau de bord
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/actors:
+    get:
+      tags: [Admin]
+      summary: Gestion des acteurs (admin)
+      description: >
+        Vue administrateur exhaustive des acteurs
+        avec filtres avancés et export.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, SUSPENDED, REVOKED, EXPIRED]
+        - name: actorType
+          in: query
+          schema:
+            type: string
+            enum: [IMPORTATEUR, DISTRIBUTEUR, ASSEMBLEUR, DETAILLANT]
+        - name: region
+          in: query
+          schema: { type: string }
+        - name: complianceScoreMin
+          in: query
+          schema: { type: number }
+        - name: complianceScoreMax
+          in: query
+          schema: { type: number }
+        - name: hasDueReport
+          in: query
+          schema: { type: boolean }
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, complianceScore, companyName, region]
+          default: createdAt
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
+          default: DESC
+      responses:
+        '200':
+          description: Liste des acteurs (admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminActors'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/actors/{id}/suspend:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin]
+      summary: Suspendre un acteur
+      description: >
+        Suspendre temporairement un acteur.
+        L'acteur ne peut plus effectuer de ventes ni d'imports.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 20
+                duration:
+                  type: integer
+                  description: Durée en jours (NULL = indéfini)
+      responses:
+        '200':
+          description: Acteur suspendu
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/actors/{id}/approve-agreement:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin]
+      summary: Approuver un agrément
+      description: Approuve la demande d'agrément d'un acteur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agreementNumber:
+                  type: string
+                expiryDate:
+                  type: string
+                  format: date
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Agrément approuvé
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/aggregations:
+    get:
+      tags: [Admin]
+      summary: Agrégations nationales
+      description: >
+        Données agrégées pour les analytics :
+        ventes par région, conformité par type d'acteur,
+        évolution des stocks, etc.
+      parameters:
+        - name: dimension
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [SALES_BY_REGION, SALES_BY_CATEGORY, COMPLIANCE_BY_TYPE, STOCK_EVOLUTION, REVENUE_TREND, FRAUD_TREND]
+        - name: dateFrom
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [DAY, WEEK, MONTH, QUARTER]
+          default: MONTH
+      responses:
+        '200':
+          description: Données agrégées
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dimension:
+                    type: string
+                  dateFrom:
+                    type: string
+                    format: date
+                  dateTo:
+                    type: string
+                    format: date
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        period:
+                          type: string
+                        label:
+                          type: string
+                        value:
+                          type: number
+                        secondaryValue:
+                          type: number
+                        trend:
+                          type: number
+                          description: Variation vs période précédente (%)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/inspections:
+    get:
+      tags: [Admin]
+      summary: Planning des inspections
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED]
+        - name: inspectorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Liste des inspections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        actorId:
+                          type: string
+                        actorName:
+                          type: string
+                        scheduledDate:
+                          type: string
+                          format: date
+                        inspectorId:
+                          type: string
+                        inspectorName:
+                          type: string
+                        status:
+                          type: string
+                        type:
+                          type: string
+                          enum: [REGULAR, COMPLAINT, RANDOM, FOLLOW_UP]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==========================================================================
+  # PORTAIL MINISTÈRE (MODULE H)
+  # ==========================================================================
+  /ministry/reports:
+    get:
+      tags: [Ministere]
+      summary: Rapports soumis au ministère
+      description: >
+        Vue ministère de tous les rapports trimestriels soumis,
+        avec statut de révision et capacité de filtrage.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: year
+          in: query
+          schema: { type: integer }
+        - name: quarter
+          in: query
+          schema:
+            type: string
+            enum: [Q1, Q2, Q3, Q4]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, AMENDMENT_REQUIRED]
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: region
+          in: query
+          schema: { type: string }
+        - name: hasComplianceIssue
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Liste des rapports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        reportId:
+                          type: string
+                        actorId:
+                          type: string
+                        actorName:
+                          type: string
+                        actorType:
+                          type: string
+                        year:
+                          type: integer
+                        quarter:
+                          type: string
+                        submittedAt:
+                          type: string
+                          format: date-time
+                        status:
+                          type: string
+                        complianceScore:
+                          type: number
+                        totalSalesAmount:
+                          type: number
+                        reviewerNotes:
+                          type: string
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /ministry/reports/{reportId}/review:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Ministere]
+      summary: Réviser un rapport (ministère)
+      description: >
+        Approuve ou rejette un rapport trimestriel soumis.
+        En cas de rejet, spécifie les amendements requis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [APPROVED, REJECTED, AMENDMENT_REQUIRED]
+                notes:
+                  type: string
+                amendmentRequirements:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Révision enregistrée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportId:
+                    type: string
+                  decision:
+                    type: string
+                  reviewedAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ministry/aggregations:
+    get:
+      tags: [Ministere]
+      summary: Agrégations nationales (ministère)
+      description: >
+        Vue d'ensemble nationale pour le ministère :
+        statistiques par région, type d'acteur, catégorie de véhicule.
+      parameters:
+        - name: dateFrom
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Agrégations nationales
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NationalAggregations'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /ministry/agreements:
+    get:
+      tags: [Ministere]
+      summary: Gestion des agréments
+      description: >
+        Vue d'ensemble de tous les agréments en cours,
+        à renouveler, ou expirés.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, EXPIRED, RENEWAL_PENDING]
+        - name: expiresBefore
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Liste des agréments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        agreementId:
+                          type: string
+                        actorId:
+                          type: string
+                        actorName:
+                          type: string
+                        actorType:
+                          type: string
+                        agreementNumber:
+                          type: string
+                        status:
+                          type: string
+                        issuedAt:
+                          type: string
+                          format: date-time
+                        expiresAt:
+                          type: string
+                          format: date-time
+                        daysUntilExpiry:
+                          type: integer
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==========================================================================
+  # WEBHOOKS
+  # ==========================================================================
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      summary: Liste des webhooks
+      responses:
+        '200':
+          description: Liste des webhooks configurés
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookEndpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Webhooks]
+      summary: Créer un webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /webhooks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Webhooks]
+      summary: Supprimer un webhook
+      responses:
+        '204':
+          description: Webhook supprimé
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /webhooks/{id}/test:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Webhooks]
+      summary: Tester un webhook
+      description: Envoie un événement de test au webhook.
+      responses:
+        '200':
+          description: Test effectué
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  responseStatus:
+                    type: integer
+                  responseTime:
+                    type: integer
+                    description: Temps de réponse en ms
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  # ========================================================================
+  # SECURITY SCHEMES
+  # ========================================================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT d'accès (RS256)
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Clé API pour les intégrations système (ministère, DGI)
+
+  # ========================================================================
+  # RESPONSES
+  # ========================================================================
+  responses:
+    BadRequest:
+      description: Requête invalide
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Non authentifié — Token invalide ou expiré
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Accès interdit — Permissions insuffisantes
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Ressource non trouvée
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    TooManyRequests:
+      description: Trop de requêtes — Rate limiting
+      headers:
+        X-RateLimit-Limit:
+          schema: { type: integer }
+        X-RateLimit-Remaining:
+          schema: { type: integer }
+        X-RateLimit-Reset:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Erreur interne du serveur
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  # ========================================================================
+  # SCHEMAS
+  # ========================================================================
+  schemas:
+    # -------------------------------------------------------------------------
+    # Commons
+    # -------------------------------------------------------------------------
+    Error:
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: "Le VIN fourni n'est pas valide"
+        code:
+          type: string
+          example: INVALID_VIN
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+          example: /api/v1/vehicles
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+        hasPrevious:
+          type: boolean
+
+    # -------------------------------------------------------------------------
+    # Auth
+    # -------------------------------------------------------------------------
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: contact@societe-import.bf
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: ""
+        deviceId:
+          type: string
+          description: Identifiant unique du device (PWA)
+        deviceInfo:
+          type: string
+
+    LoginResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        mfaRequired:
+          type: boolean
+          description: true si MFA requis pour compléter l'auth
+        tempToken:
+          type: string
+          description: Token temporaire pour vérification MFA
+        accessToken:
+          type: string
+          description: JWT access token (si pas de MFA requis)
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Durée de validité access token (secondes)
+          example: 900
+        user:
+          $ref: '#/components/schemas/User'
+
+    TokenRefreshResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        roles:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [SUPER_ADMIN, ADMIN_DRCTT, CONTROLEUR, IMPORTATEUR, DISTRIBUTEUR, ASSEMBLEUR, DETAILLANT, AUDITEUR, CNTI_AGENT]
+              actorId:
+                type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        locale:
+          type: string
+          example: fr_BF
+        mfaEnabled:
+          type: boolean
+        actor:
+          type: object
+          properties:
+            id:
+              type: string
+            companyName:
+              type: string
+            actorType:
+              type: string
+
+    # -------------------------------------------------------------------------
+    # Acteurs
+    # -------------------------------------------------------------------------
+    Actor:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorType:
+          type: string
+          enum: [IMPORTATEUR, DISTRIBUTEUR, ASSEMBLEUR, DETAILLANT, PRESTATAIRE]
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, SUSPENDED, REVOKED, EXPIRED]
+        companyName:
+          type: string
+        tradeName:
+          type: string
+        nif:
+          type: string
+        rccm:
+          type: string
+        legalRepresentativeName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        addressLine1:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        agreementStatus:
+          type: string
+        agreementNumber:
+          type: string
+        agreementExpiresAt:
+          type: string
+          format: date-time
+        complianceScore:
+          type: number
+        complianceCountdownDays:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ActorDetail:
+      allOf:
+        - $ref: '#/components/schemas/Actor'
+        - type: object
+          properties:
+            warehouses:
+              type: array
+              items:
+                $ref: '#/components/schemas/Warehouse'
+            documents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ActorDocument'
+            parentActor:
+              type: object
+              properties:
+                id:
+                  type: string
+                companyName:
+                  type: string
+
+    PaginatedActors:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Actor'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateActorRequest:
+      type: object
+      required: [actorType, companyName, legalRepresentativeName, legalRepresentativePhone, email, phone, addressLine1, city, region, nif]
+      properties:
+        actorType:
+          type: string
+          enum: [IMPORTATEUR, DISTRIBUTEUR, ASSEMBLEUR, DETAILLANT, PRESTATAIRE]
+        companyName:
+          type: string
+          maxLength: 255
+        tradeName:
+          type: string
+        nif:
+          type: string
+        rccm:
+          type: string
+        legalRepresentativeName:
+          type: string
+        legalRepresentativeTitle:
+          type: string
+        legalRepresentativePhone:
+          type: string
+        legalRepresentativeEmail:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        alternatePhone:
+          type: string
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        postalCode:
+          type: string
+        gpsCoordinates:
+          type: object
+          properties:
+            lat: { type: number }
+            lng: { type: number }
+        bankName:
+          type: string
+        bankAccount:
+          type: string
+        bankRib:
+          type: string
+        parentActorId:
+          type: string
+          format: uuid
+
+    UpdateActorRequest:
+      type: object
+      properties:
+        companyName: { type: string }
+        tradeName: { type: string }
+        legalRepresentativeName: { type: string }
+        legalRepresentativePhone: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        region: { type: string }
+        gpsCoordinates:
+          type: object
+          properties:
+            lat: { type: number }
+            lng: { type: number }
+        bankName: { type: string }
+        bankAccount: { type: string }
+
+    ActorDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        documentType:
+          type: string
+        documentLabel:
+          type: string
+        fileName:
+          type: string
+        fileSizeBytes:
+          type: integer
+        mimeType:
+          type: string
+        storageUrl:
+          type: string
+        checksumSha256:
+          type: string
+        issuedDate:
+          type: string
+          format: date
+        expiryDate:
+          type: string
+          format: date
+        isVerified:
+          type: boolean
+        verifiedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    Warehouse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        code:
+          type: string
+        addressLine1:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        gpsCoordinates:
+          type: object
+          properties:
+            lat: { type: number }
+            lng: { type: number }
+        isPrimary:
+          type: boolean
+        capacityUnits:
+          type: integer
+        surfaceSqm:
+          type: number
+        securityLevel:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateWarehouseRequest:
+      type: object
+      required: [name, code, addressLine1, city, region]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        region: { type: string }
+        gpsCoordinates:
+          type: object
+          properties:
+            lat: { type: number }
+            lng: { type: number }
+        capacityUnits: { type: integer }
+        surfaceSqm: { type: number }
+        securityLevel:
+          type: string
+          enum: [STANDARD, RENFORCE, HAUTE]
+        isPrimary: { type: boolean }
+
+    # -------------------------------------------------------------------------
+    # Véhicules
+    # -------------------------------------------------------------------------
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+        vin:
+          type: string
+        chassisNumber: { type: string }
+        engineNumber: { type: string }
+        manufacturer: { type: string }
+        model: { type: string }
+        modelYear: { type: integer }
+        category: { type: string }
+        categoryLabel: { type: string }
+        fuelType: { type: string }
+        transmission: { type: string }
+        cylinderCapacityCc: { type: integer }
+        powerKw: { type: number }
+        weightKg: { type: number }
+        color: { type: string }
+        status: { type: string }
+        qrCode: { type: string }
+        homologationNumber: { type: string }
+        homologationValidUntil:
+          type: string
+          format: date
+        complianceStatus: { type: string }
+        importDate:
+          type: string
+          format: date
+        customsValue: { type: number }
+        currentOwnerActorId: { type: string }
+        currentWarehouseId: { type: string }
+        createdAt:
+          type: string
+          format: date-time
+
+    VehicleDetail:
+      allOf:
+        - $ref: '#/components/schemas/Vehicle'
+        - type: object
+          properties:
+            ownershipHistory:
+              type: array
+              items:
+                $ref: '#/components/schemas/VehicleOwnership'
+            isBlacklisted:
+              type: boolean
+            blacklistInfo:
+              type: object
+              properties:
+                reason: { type: string }
+                reasonDetails: { type: string }
+                reportedAt:
+                  type: string
+                  format: date-time
+
+    PaginatedVehicles:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vehicle'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateVehicleRequest:
+      type: object
+      required: [vin, manufacturer, model, modelYear, categoryId, fuelType, cylinderCapacityCc]
+      properties:
+        vin:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+        chassisNumber: { type: string }
+        engineNumber: { type: string }
+        manufacturer: { type: string }
+        model: { type: string }
+        modelYear:
+          type: integer
+          minimum: 1990
+          maximum: 2030
+        categoryId:
+          type: string
+          format: uuid
+        fuelType:
+          type: string
+          enum: [ESSENCE, DIESEL, ELECTRIQUE, HYBRIDE, GPL]
+        transmission:
+          type: string
+          enum: [MANUELLE, AUTOMATIQUE, SEMI_AUTOMATIQUE, CONTINUOUSLY_VARIABLE]
+        cylinderCapacityCc: { type: integer }
+        powerKw: { type: number }
+        weightKg: { type: number }
+        color: { type: string }
+        importCountryCode: { type: string }
+        importDeclarationNumber: { type: string }
+        importDate:
+          type: string
+          format: date
+        customsValue: { type: number }
+        originCertificateRef: { type: string }
+        homologationNumber: { type: string }
+        homologationValidUntil:
+          type: string
+          format: date
+
+    UpdateVehicleRequest:
+      type: object
+      properties:
+        color: { type: string }
+        status:
+          type: string
+          enum: [IMPORTED, IN_STOCK, RESERVED, SOLD, REGISTERED, STOLEN, SCRAPPED, EXPORTED]
+        currentWarehouseId:
+          type: string
+          format: uuid
+        homologationNumber: { type: string }
+        homologationValidUntil:
+          type: string
+          format: date
+
+    VehicleOwnership:
+      type: object
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        clientId: { type: string }
+        clientName: { type: string }
+        actorId: { type: string }
+        actorName: { type: string }
+        transferType: { type: string }
+        ownershipStartedAt:
+          type: string
+          format: date-time
+        ownershipEndedAt:
+          type: string
+          format: date-time
+        isCurrent: { type: boolean }
+        certificateNumber: { type: string }
+
+    VehicleBlacklistEntry:
+      type: object
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        vin: { type: string }
+        reason:
+          type: string
+          enum: [STOLEN, FRAUD, COUNTERFEIT, NON_COMPLIANT, ADMIN_SEIZURE, INSURANCE_TOTAL_LOSS]
+        reasonDetails: { type: string }
+        source: { type: string }
+        reportedBy: { type: string }
+        reportedAt:
+          type: string
+          format: date-time
+        isActive: { type: boolean }
+
+    CreateBlacklistEntryRequest:
+      type: object
+      required: [vin, reason]
+      properties:
+        vehicleId:
+          type: string
+          format: uuid
+        vin:
+          type: string
+        reason:
+          type: string
+          enum: [STOLEN, FRAUD, COUNTERFEIT, NON_COMPLIANT, ADMIN_SEIZURE, INSURANCE_TOTAL_LOSS]
+        reasonDetails: { type: string }
+        sourceReference: { type: string }
+
+    # -------------------------------------------------------------------------
+    # Stocks
+    # -------------------------------------------------------------------------
+    StockMovement:
+      type: object
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        vehicleVin: { type: string }
+        actorId: { type: string }
+        warehouseId: { type: string }
+        warehouseName: { type: string }
+        movementType:
+          type: string
+          enum: [IMPORT, ASSEMBLY, TRANSFER, SALE, RETURN, ADJUSTMENT, SCRAP, RESERVATION, RELEASE]
+        quantity: { type: integer }
+        referenceDocument: { type: string }
+        unitCost: { type: number }
+        currencyCode: { type: string }
+        notes: { type: string }
+        performedBy: { type: string }
+        movementDate:
+          type: string
+          format: date-time
+
+    CreateStockMovementRequest:
+      type: object
+      required: [vehicleId, movementType]
+      properties:
+        vehicleId:
+          type: string
+          format: uuid
+        movementType:
+          type: string
+          enum: [IMPORT, ASSEMBLY, TRANSFER, SALE, RETURN, ADJUSTMENT, SCRAP, RESERVATION, RELEASE]
+        warehouseId:
+          type: string
+          format: uuid
+        referenceDocument: { type: string }
+        referenceSaleId:
+          type: string
+          format: uuid
+        referenceTransferFrom:
+          type: string
+          format: uuid
+        referenceTransferTo:
+          type: string
+          format: uuid
+        unitCost: { type: number }
+        currencyCode: { type: string }
+        notes: { type: string }
+
+    InventoryCount:
+      type: object
+      properties:
+        id: { type: string }
+        warehouseId: { type: string }
+        warehouseName: { type: string }
+        status:
+          type: string
+          enum: [PLANNED, IN_PROGRESS, COMPLETED, RECONCILED, DISCREPANCY_FOUND]
+        plannedDate:
+          type: string
+          format: date
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        totalUnitsExpected: { type: integer }
+        totalUnitsCounted: { type: integer }
+        discrepancyUnits: { type: integer }
+        discrepancyValue: { type: number }
+        performedBy: { type: string }
+
+    # -------------------------------------------------------------------------
+    # Clients
+    # -------------------------------------------------------------------------
+    Client:
+      type: object
+      properties:
+        id: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        fullName: { type: string }
+        idDocumentType:
+          type: string
+          enum: [CNI, PASSPORT, CARTE_CONSULAIRE, NIF_CARD, PERMIS_CONDUIRE, CERTIFICAT_NAISSANCE]
+        idDocumentNumber: { type: string }
+        phone: { type: string }
+        phone2: { type: string }
+        email: { type: string }
+        city: { type: string }
+        region: { type: string }
+        status:
+          type: string
+          enum: [PENDING_KYC, KYC_VERIFIED, KYC_REJECTED, BLACKLISTED]
+        kycVerifiedAt:
+          type: string
+          format: date-time
+        kycRiskLevel:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        biometricEnrolled: { type: boolean }
+        registeredByActorId: { type: string }
+        vehicleCount: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+
+    ClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/Client'
+        - type: object
+          properties:
+            documents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClientDocument'
+            vehicles:
+              type: array
+              items:
+                $ref: '#/components/schemas/VehicleOwnership'
+
+    CreateClientRequest:
+      type: object
+      required: [firstName, lastName, idDocumentType, idDocumentNumber, phone]
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        idDocumentType:
+          type: string
+          enum: [CNI, PASSPORT, CARTE_CONSULAIRE, NIF_CARD, PERMIS_CONDUIRE, CERTIFICAT_NAISSANCE]
+        idDocumentNumber: { type: string }
+        idDocumentIssuedAt:
+          type: string
+          format: date
+        idDocumentExpiresAt:
+          type: string
+          format: date
+        idDocumentIssuedBy: { type: string }
+        phone: { type: string }
+        phone2: { type: string }
+        email: { type: string }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        region: { type: string }
+
+    UpdateClientRequest:
+      type: object
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        phone: { type: string }
+        phone2: { type: string }
+        email: { type: string }
+        addressLine1: { type: string }
+        city: { type: string }
+        region: { type: string }
+
+    ClientDocument:
+      type: object
+      properties:
+        id: { type: string }
+        documentType: { type: string }
+        fileName: { type: string }
+        fileSizeBytes: { type: integer }
+        mimeType: { type: string }
+        storageUrl: { type: string }
+        isVerified: { type: boolean }
+        verifiedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    # -------------------------------------------------------------------------
+    # Ventes
+    # -------------------------------------------------------------------------
+    Sale:
+      type: object
+      properties:
+        id: { type: string }
+        actorId: { type: string }
+        clientId: { type: string }
+        clientName: { type: string }
+        status:
+          type: string
+          enum: [DRAFT, PENDING_PAYMENT, PAID, PARTIALLY_PAID, CANCELLED, REFUNDED]
+        paymentMethod:
+          type: string
+          enum: [CASH, BANK_TRANSFER, MOBILE_MONEY, CHEQUE, CREDIT, INSTALLMENT]
+        subtotalAmount: { type: number }
+        discountAmount: { type: number }
+        taxAmount: { type: number }
+        totalAmount: { type: number }
+        currencyCode: { type: string }
+        saleDate:
+          type: string
+          format: date-time
+        invoiceNumber: { type: string }
+        itemCount: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+
+    SaleDetail:
+      allOf:
+        - $ref: '#/components/schemas/Sale'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/SaleItem'
+            taxBreakdown:
+              type: object
+            invoice:
+              type: object
+              properties:
+                id: { type: string }
+                invoiceNumber: { type: string }
+                status: { type: string }
+                pdfUrl: { type: string }
+
+    PaginatedSales:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sale'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateSaleRequest:
+      type: object
+      required: [clientId, paymentMethod, items]
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        paymentMethod:
+          type: string
+          enum: [CASH, BANK_TRANSFER, MOBILE_MONEY, CHEQUE, CREDIT, INSTALLMENT]
+        paymentReference: { type: string }
+        discountAmount: { type: number }
+        notes: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [vehicleId, unitPrice]
+            properties:
+              vehicleId:
+                type: string
+                format: uuid
+              unitPrice: { type: number }
+              quantity:
+                type: integer
+                default: 1
+              discountAmount: { type: number }
+        saleLocation:
+          type: object
+          properties:
+            lat: { type: number }
+            lng: { type: number }
+
+    UpdateSaleRequest:
+      type: object
+      properties:
+        discountAmount: { type: number }
+        notes: { type: string }
+
+    SaleItem:
+      type: object
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        vehicleVin: { type: string }
+        vehicleModel: { type: string }
+        unitPrice: { type: number }
+        quantity: { type: integer }
+        lineTotal: { type: number }
+        taxAmount: { type: number }
+        marginAmount: { type: number }
+        marginRate: { type: number }
+
+    # -------------------------------------------------------------------------
+    # Pricing
+    # -------------------------------------------------------------------------
+    PurchasePrice:
+      type: object
+      properties:
+        id: { type: string }
+        actorId: { type: string }
+        vehicleCategoryId: { type: string }
+        manufacturer: { type: string }
+        model: { type: string }
+        modelYear: { type: integer }
+        unitPriceForeign: { type: number }
+        foreignCurrencyCode: { type: string }
+        exchangeRate: { type: number }
+        unitPriceXof: { type: number }
+        freightCost: { type: number }
+        insuranceCost: { type: number }
+        customsDuties: { type: number }
+        otherCosts: { type: number }
+        totalLandedCost: { type: number }
+        supplierName: { type: string }
+        supplierCountry: { type: string }
+        effectiveDate:
+          type: string
+          format: date
+
+    CreatePurchasePriceRequest:
+      type: object
+      required: [actorId, unitPriceForeign, foreignCurrencyCode, exchangeRate, totalLandedCost]
+      properties:
+        actorId:
+          type: string
+          format: uuid
+        vehicleCategoryId:
+          type: string
+          format: uuid
+        manufacturer: { type: string }
+        model: { type: string }
+        modelYear: { type: integer }
+        unitPriceForeign: { type: number }
+        foreignCurrencyCode:
+          type: string
+          default: EUR
+        exchangeRate: { type: number }
+        freightCost: { type: number }
+        insuranceCost: { type: number }
+        customsDuties: { type: number }
+        otherCosts: { type: number }
+        totalLandedCost: { type: number }
+        supplierName: { type: string }
+        supplierCountry: { type: string }
+        effectiveDate:
+          type: string
+          format: date
+
+    PricingHistoryEntry:
+      type: object
+      properties:
+        id: { type: string }
+        actorId: { type: string }
+        vehicleCategory: { type: string }
+        manufacturer: { type: string }
+        model: { type: string }
+        purchasePrice: { type: number }
+        sellingPrice: { type: number }
+        marginAmount: { type: number }
+        marginRate: { type: number }
+        isAnomaly: { type: boolean }
+        anomalyType: { type: string }
+        effectiveDate:
+          type: string
+          format: date
+
+    # -------------------------------------------------------------------------
+    # Conformité
+    # -------------------------------------------------------------------------
+    ComplianceRule:
+      type: object
+      properties:
+        id: { type: string }
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        ruleType:
+          type: string
+          enum: [DOCUMENT, VEHICLE_SPEC, PRICING, STOCK, KYC, TIMING, CUSTOMS, TAX]
+        severity:
+          type: string
+          enum: [INFO, WARNING, CRITICAL, BLOCKER]
+        isActive: { type: boolean }
+        validFrom:
+          type: string
+          format: date
+        legalReference: { type: string }
+
+    ComplianceChecklist:
+      type: object
+      properties:
+        id: { type: string }
+        actorId: { type: string }
+        name: { type: string }
+        checklistType: { type: string }
+        status: { type: string }
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        totalRules: { type: integer }
+        passedRules: { type: integer }
+        failedRules: { type: integer }
+        warningRules: { type: integer }
+        completedAt:
+          type: string
+          format: date-time
+
+    ComplianceChecklistItem:
+      type: object
+      properties:
+        id: { type: string }
+        ruleId: { type: string }
+        ruleCode: { type: string }
+        ruleName: { type: string }
+        ruleType: { type: string }
+        severity: { type: string }
+        status: { type: string }
+        observedValue: { type: string }
+        expectedValue: { type: string }
+        notes: { type: string }
+        checkedAt:
+          type: string
+          format: date-time
+
+    ComplianceScore:
+      type: object
+      properties:
+        actorId: { type: string }
+        overallScore: { type: number }
+        documentScore: { type: number }
+        vehicleScore: { type: number }
+        pricingScore: { type: number }
+        kycScore: { type: number }
+        reportingScore: { type: number }
+        stockScore: { type: number }
+        rulesChecked: { type: integer }
+        rulesPassed: { type: integer }
+        rulesFailed: { type: integer }
+        criticalFailures: { type: integer }
+        alertLevel: { type: string }
+        countdownDays: { type: integer }
+        calculatedAt:
+          type: string
+          format: date-time
+
+    # -------------------------------------------------------------------------
+    # Sécurité
+    # -------------------------------------------------------------------------
+    FraudAlert:
+      type: object
+      properties:
+        id: { type: string }
+        alertType: { type: string }
+        severity:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        status:
+          type: string
+          enum: [OPEN, UNDER_INVESTIGATION, CONFIRMED, FALSE_POSITIVE, CLOSED, ESCALATED]
+        title: { type: string }
+        description: { type: string }
+        detectedPattern: { type: string }
+        riskScore: { type: number }
+        riskFactors:
+          type: array
+          items: { type: string }
+        vehicleId: { type: string }
+        actorId: { type: string }
+        clientId: { type: string }
+        saleId: { type: string }
+        assignedTo: { type: string }
+        cntiNotifiedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    SecurityBlacklistEntry:
+      type: object
+      properties:
+        id: { type: string }
+        blacklistType: { type: string }
+        entityId: { type: string }
+        entityIdentifier: { type: string }
+        reason: { type: string }
+        reasonCategory: { type: string }
+        source: { type: string }
+        blacklistedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        isActive: { type: boolean }
+
+    CreateSecurityBlacklistRequest:
+      type: object
+      required: [blacklistType, entityIdentifier, reason, reasonCategory]
+      properties:
+        blacklistType:
+          type: string
+          enum: [VEHICLE, CLIENT, ACTOR, USER, VIN_PATTERN]
+        entityId:
+          type: string
+          format: uuid
+        entityIdentifier: { type: string }
+        reason: { type: string }
+        reasonCategory:
+          type: string
+          enum: [FRAUD, THEFT, COUNTERFEIT, SANCTION]
+        sourceReference: { type: string }
+        expiresAt:
+          type: string
+          format: date-time
+
+    TransactionFlag:
+      type: object
+      properties:
+        id: { type: string }
+        saleId: { type: string }
+        flagType: { type: string }
+        severity: { type: string }
+        description: { type: string }
+        riskScore: { type: number }
+        isResolved: { type: boolean }
+        createdAt:
+          type: string
+          format: date-time
+
+    # -------------------------------------------------------------------------
+    # Admin
+    # -------------------------------------------------------------------------
+    AdminDashboard:
+      type: object
+      properties:
+        period:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        kpi:
+          type: object
+          properties:
+            totalActors:
+              type: integer
+            activeActors:
+              type: integer
+            pendingApprovals:
+              type: integer
+            totalVehicles:
+              type: integer
+            totalSales:
+              type: integer
+            totalRevenue:
+              type: number
+            avgComplianceScore:
+              type: number
+            criticalAlerts:
+              type: integer
+            overdueReports:
+              type: integer
+            inspectionsThisMonth:
+              type: integer
+        charts:
+          type: object
+          properties:
+            salesByMonth:
+              type: array
+              items:
+                type: object
+                properties:
+                  month: { type: string }
+                  amount: { type: number }
+            complianceByType:
+              type: array
+              items:
+                type: object
+                properties:
+                  type: { type: string }
+                  avgScore: { type: number }
+            actorsByRegion:
+              type: array
+              items:
+                type: object
+                properties:
+                  region: { type: string }
+                  count: { type: integer }
+
+    PaginatedAdminActors:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              companyName: { type: string }
+              actorType: { type: string }
+              status: { type: string }
+              region: { type: string }
+              agreementStatus: { type: string }
+              complianceScore: { type: number }
+              lastReportStatus: { type: string }
+              vehicleCount: { type: integer }
+              createdAt:
+                type: string
+                format: date-time
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    NationalAggregations:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+        summary:
+          type: object
+          properties:
+            totalActors: { type: integer }
+            totalVehiclesRegistered: { type: integer }
+            totalSales: { type: integer }
+            totalRevenue: { type: number }
+            totalTaxCollected: { type: number }
+            avgComplianceScore: { type: number }
+            sanctionsIssued: { type: integer }
+        byRegion:
+          type: array
+          items:
+            type: object
+            properties:
+              region: { type: string }
+              actorCount: { type: integer }
+              vehicleCount: { type: integer }
+              salesAmount: { type: number }
+              complianceScore: { type: number }
+        byCategory:
+          type: array
+          items:
+            type: object
+            properties:
+              category: { type: string }
+              vehiclesImported: { type: integer }
+              vehiclesSold: { type: integer }
+              avgPrice: { type: number }
+        topAlerts:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              count: { type: integer }
+              severity: { type: string }
+
+    # -------------------------------------------------------------------------
+    # Webhooks
+    # -------------------------------------------------------------------------
+    WebhookEndpoint:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        url: { type: string }
+        events:
+          type: array
+          items: { type: string }
+        isActive: { type: boolean }
+        lastDeliveredAt:
+          type: string
+          format: date-time
+        lastDeliveryStatus: { type: string }
+        deliveryCount: { type: integer }
+        failureCount: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [name, url, events]
+      properties:
+        name: { type: string }
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum: [sale.recorded, compliance.changed, fraud.alert, report.submitted, actor.created, vehicle.imported]
+        secret: { type: string }
+        retryMax: { type: integer, default: 3 }
+        timeoutMs: { type: integer, default: 30000 }

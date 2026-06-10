@@ -1,0 +1,397 @@
+# ============================================================================
+# iReg Moto BF — Règles d'alerting Prometheus
+# ============================================================================
+# Alertes critiques pour la plateforme réglementaire
+# Classification : critical, warning, info
+# ============================================================================
+
+groups:
+  # ========================================================================
+  # INFRASTRUCTURE — Disponibilité système
+  # ========================================================================
+  - name: infrastructure
+    interval: 15s
+    rules:
+      # --- Disponibilité générale ---
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Instance {{ $labels.instance }} est hors ligne"
+          description: "L'instance {{ $labels.instance }} du job {{ $labels.job }} est down depuis plus de 1 minute."
+          runbook_url: "https://wiki.ireg-motobf.bf/runbooks/instance-down"
+          action: "Vérifier le statut du pod : kubectl get pods -n ireg-moto-bf-prod"
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Utilisation CPU élevée sur {{ $labels.instance }}"
+          description: "CPU usage est à {{ $value }}% depuis 5 minutes."
+          action: "Vérifier les HPA et considérer le scaling."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Utilisation mémoire élevée sur {{ $labels.instance }}"
+          description: "La mémoire est utilisée à {{ $value }}%."
+          action: "Vérifier les OOM kills et ajuster les limits mémoire."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Espace disque faible sur {{ $labels.instance }}"
+          description: "Moins de 10% d'espace disque disponible ({{ $value }}%)."
+          action: "Nettoyer les logs et les vieux backups immédiatement."
+
+      - alert: DiskWillFillIn24Hours
+        expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 24 * 3600) < 0
+        for: 1h
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Le disque de {{ $labels.instance }} sera plein dans 24h"
+          description: "Projection linéaire indique un disque plein dans moins de 24 heures."
+
+  # ========================================================================
+  # APPLICATION — API Backend
+  # ========================================================================
+  - name: application
+    interval: 15s
+    rules:
+      - alert: APIHighErrorRate
+        expr: |
+          (
+            sum(rate(ireg_http_requests_total{status=~"5.."}[5m])) 
+            / 
+            sum(rate(ireg_http_requests_total[5m]))
+          ) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Taux d'erreur API élevé"
+          description: "Le taux d'erreur HTTP 5xx est de {{ $value }}% sur les 5 dernières minutes."
+          action: "Vérifier les logs backend et la santé de PostgreSQL."
+
+      - alert: APIHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(ireg_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "Latence API élevée (P95)"
+          description: "Le 95e percentile de latence est à {{ $value }}s."
+          action: "Vérifier les requêtes lentes et le pool de connexions DB."
+
+      - alert: APIHighLatencyCritical
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(ireg_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 5
+        for: 3m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Latence API critique (P99)"
+          description: "Le 99e percentile de latence est à {{ $value }}s."
+          action: "ALERTE CRITIQUE — Scaling immédiat requis."
+
+      - alert: APIRequestRateSpike
+        expr: |
+          sum(rate(ireg_http_requests_total[5m])) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "Pic de trafic API détecté"
+          description: "{{ $value }} requêtes/seconde — possible DDoS ou pic légitime."
+          action: "Vérifier le rate limiting et scaler si nécessaire."
+
+      - alert: APIDown
+        expr: up{job="ireg-backend"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "L'API iReg Moto BF est hors ligne"
+          description: "L'API backend ne répond pas depuis 30 secondes."
+          action: "Vérifier les pods : kubectl get pods -n ireg-moto-bf-prod -l app.kubernetes.io/name=backend"
+
+      - alert: HealthCheckFailing
+        expr: probe_success{job="blackbox-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Healthcheck échoue pour {{ $labels.instance }}"
+          description: "Le endpoint de healthcheck ne répond pas correctement."
+
+  # ========================================================================
+  # BASE DE DONNÉES — PostgreSQL
+  # ========================================================================
+  - name: database
+    interval: 15s
+    rules:
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL est hors ligne"
+          description: "L'instance PostgreSQL ne répond pas."
+          action: "Vérifier immédiatement le pod PostgreSQL. Toute l'application est impactée."
+
+      - alert: PostgreSQLHighConnections
+        expr: |
+          (
+            pg_stat_activity_count 
+            / 
+            pg_settings_max_connections
+          ) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Connexions PostgreSQL élevées"
+          description: "{{ $value }}% des connexions sont utilisées."
+          action: "Vérifier les connexions orphelines et augmenter le pool si nécessaire."
+
+      - alert: PostgreSQLSlowQueries
+        expr: |
+          pg_stat_statements_mean_time > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Requêtes lentes PostgreSQL"
+          description: "Temps moyen d'exécution : {{ $value }}ms."
+          action: "Analyser les requêtes lentes avec EXPLAIN ANALYZE."
+
+      - alert: PostgreSQLReplicationLag
+        expr: pg_replication_lag > 30
+        for: 2m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Lag de réplication PostgreSQL"
+          description: "Le lag de réplication est de {{ $value }} secondes."
+          action: "Vérifier l'état du réplica et la bande passante réseau."
+
+      - alert: PostgreSQLDeadlock
+        expr: increase(pg_stat_database_deadlocks[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Deadlock détecté dans PostgreSQL"
+          description: "{{ $value }} deadlocks détectés en 5 minutes."
+          action: "Analyser les transactions concurrentes."
+
+  # ========================================================================
+  # CACHE — Redis
+  # ========================================================================
+  - name: cache
+    interval: 15s
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: cache
+        annotations:
+          summary: "Redis est hors ligne"
+          description: "L'instance Redis ne répond pas."
+          action: "Vérifier le pod Redis. Le rate limiting et les sessions sont impactés."
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          category: cache
+        annotations:
+          summary: "Mémoire Redis presque pleine"
+          description: "{{ $value }}% de la mémoire Redis est utilisée."
+          action: "Vérifier la politique d'éviction et augmenter la mémoire si nécessaire."
+
+      - alert: RedisHighConnectionUsage
+        expr: redis_connected_clients > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: cache
+        annotations:
+          summary: "Nombreux clients connectés à Redis"
+          description: "{{ $value }} clients connectés."
+          action: "Vérifier les fuites de connexions dans l'application."
+
+  # ========================================================================
+  # MESSAGERIE — RabbitMQ
+  # ========================================================================
+  - name: messaging
+    interval: 15s
+    rules:
+      - alert: RabbitMQDown
+        expr: rabbitmq_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: messaging
+        annotations:
+          summary: "RabbitMQ est hors ligne"
+          description: "L'instance RabbitMQ ne répond pas."
+          action: "Vérifier le pod RabbitMQ. La file d'attente des rapports est bloquée."
+
+      - alert: RabbitMQQueueHighMessages
+        expr: rabbitmq_queue_messages_ready > 10000
+        for: 5m
+        labels:
+          severity: warning
+          category: messaging
+        annotations:
+          summary: "Messages en attente dans RabbitMQ"
+          description: "{{ $value }} messages en attente dans la queue."
+          action: "Vérifier que les consumers fonctionnent correctement."
+
+      - alert: RabbitMQConsumersDown
+        expr: rabbitmq_queue_consumers == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: messaging
+        annotations:
+          summary: "Aucun consumer RabbitMQ"
+          description: "La queue {{ $labels.queue }} n'a aucun consumer actif."
+          action: "Redémarrer les workers de traitement des rapports."
+
+  # ========================================================================
+  # STOCKAGE — MinIO
+  # ========================================================================
+  - name: storage
+    interval: 60s
+    rules:
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: "MinIO est hors ligne"
+          description: "Le stockage S3-compatible ne répond pas."
+          action: "Vérifier le pod MinIO. Les uploads de documents sont bloqués."
+
+      - alert: MinIODiskSpaceLow
+        expr: |
+          (minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          category: storage
+        annotations:
+          summary: "Espace disque MinIO faible"
+          description: "{{ $value }}% d'espace disponible."
+          action: "Archiver les vieux documents ou augmenter le stockage."
+
+  # ========================================================================
+  # MÉTRIQUES MÉTIER — iReg Moto BF
+  # ========================================================================
+  - name: business
+    interval: 60s
+    rules:
+      - alert: LowReportSubmissionRate
+        expr: |
+          rate(ireg_business_reports_submitted_total[1h]) < 0.1
+        for: 2h
+        labels:
+          severity: info
+          category: business
+        annotations:
+          summary: "Faible taux de soumission de rapports"
+          description: "Moins de 0.1 rapport/minute soumis depuis 2 heures."
+          action: "Vérifier que les points de vente peuvent accéder à la plateforme."
+
+      - alert: HighNonComplianceRate
+        expr: |
+          (
+            sum(rate(ireg_business_non_compliant_total[1h])) 
+            / 
+            sum(rate(ireg_business_reports_submitted_total[1h]))
+          ) * 100 > 20
+        for: 30m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Taux de non-conformité élevé"
+          description: "{{ $value }}% des rapports indiquent une non-conformité."
+          action: "Analyser les tendances de non-conformité et alerter les équipes terrain."
+
+      - alert: DocumentUploadFailure
+        expr: |
+          rate(ireg_business_upload_failures_total[10m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Échecs d'upload de documents"
+          description: "{{ $value }} échecs d'upload par minute."
+          action: "Vérifier MinIO et la connectivité réseau des points de vente."
+
+      - alert: SyncBacklog
+        expr: |
+          ireg_business_sync_queue_size > 5000
+        for: 15m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Accumulation de synchronisations offline"
+          description: "{{ $value }} éléments en attente de synchronisation."
+          action: "Vérifier la connectivité réseau et le traitement des files d'attente."
+
+      - alert: CertificateExpiringSoon
+        expr: |
+          (ssl_certificate_expiry_seconds - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Certificat TLS expirant dans {{ $value }} jours"
+          description: "Le certificat SSL pour {{ $labels.instance }} expire bientôt."
+          action: "Renouveler le certificat via cert-manager."

@@ -1,0 +1,147 @@
+# ============================================================================
+# Alertmanager — Configuration
+# ============================================================================
+# Routage des alertes vers Slack, Email, PagerDuty
+# ============================================================================
+
+global:
+  smtp_smarthost: '${SMTP_HOST}:587'
+  smtp_from: 'alertes@ireg-motobf.bf'
+  smtp_auth_username: '${SMTP_USER}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+  # Templates
+  templates:
+    - '/etc/alertmanager/templates/*.tmpl'
+
+# === Routes ===
+route:
+  group_by: ['alertname', 'severity', 'category']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+  routes:
+    # Alertes critiques → PagerDuty + Slack + Email
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 30m
+      continue: true
+
+    # Alertes application → Slack #devops
+    - match:
+        category: application
+      receiver: 'slack-devops'
+      continue: true
+
+    # Alertes business → Slack #business
+    - match:
+        category: business
+      receiver: 'slack-business'
+      group_interval: 15m
+      repeat_interval: 24h
+
+    # Alertes infrastructure → Slack #infra
+    - match:
+        category: infrastructure
+      receiver: 'slack-infra'
+
+# === Receivers ===
+receivers:
+  - name: 'default'
+    slack_configs:
+      - channel: '#alerts'
+        title: '📢 {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Severity:* {{ .Labels.severity }}
+          *Description:* {{ .Annotations.description }}
+          *Action:* {{ .Annotations.action }}
+          {{ end }}
+        send_resolved: true
+
+  - name: 'critical-alerts'
+    # PagerDuty
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        severity: critical
+        description: '{{ .GroupLabels.alertname }}'
+        details:
+          summary: '{{ .Annotations.summary }}'
+          description: '{{ .Annotations.description }}'
+    # Slack #incidents
+    slack_configs:
+      - channel: '#incidents'
+        title: '🚨 CRITICAL : {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *CRITICAL ALERT*
+          *Instance:* {{ .Labels.instance }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          *Action requise:* {{ .Annotations.action }}
+          {{ end }}
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+    # Email équipe technique
+    email_configs:
+      - to: 'devops-oncall@ireg-motobf.bf'
+        subject: '[CRITICAL] iReg Moto BF - {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          ALERTE CRITIQUE - iReg Moto BF
+          
+          Alert: {{ .Labels.alertname }}
+          Instance: {{ .Labels.instance }}
+          Severity: {{ .Labels.severity }}
+          Time: {{ .StartsAt }}
+          
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Action: {{ .Annotations.action }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+
+  - name: 'slack-devops'
+    slack_configs:
+      - channel: '#devops'
+        title: '🔧 {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+
+  - name: 'slack-business'
+    slack_configs:
+      - channel: '#business-metrics'
+        title: '📊 {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+
+  - name: 'slack-infra'
+    slack_configs:
+      - channel: '#infrastructure'
+        title: '🖥️ {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+
+# === Inhibition ===
+inhibit_rules:
+  # Si InstanceDown critical → inhiber les alertes warning sur le même host
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']
+
+  # Si PostgreSQLDown → inhiber les alertes DB liées
+  - source_match:
+      alertname: 'PostgreSQLDown'
+    target_match_re:
+      alertname: 'PostgreSQL.*'
+    equal: ['instance']

@@ -1,0 +1,18 @@
+# ============================================================================
+# Grafana — Dashboards Provisioning
+# ============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'iReg Moto BF Dashboards'
+    orgId: 1
+    folder: 'iReg Moto BF'
+    folderUid: 'ireg-moto-bf'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

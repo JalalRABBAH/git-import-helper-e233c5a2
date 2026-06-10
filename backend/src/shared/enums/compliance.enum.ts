@@ -1,0 +1,25 @@
+export enum ComplianceRuleType {
+  DOCUMENT = 'DOCUMENT',
+  VEHICLE_SPEC = 'VEHICLE_SPEC',
+  PRICING = 'PRICING',
+  STOCK = 'STOCK',
+  KYC = 'KYC',
+  TIMING = 'TIMING',
+  CUSTOMS = 'CUSTOMS',
+  TAX = 'TAX',
+}
+
+export enum ComplianceSeverity {
+  INFO = 'INFO',
+  WARNING = 'WARNING',
+  CRITICAL = 'CRITICAL',
+  BLOCKER = 'BLOCKER',
+}
+
+export enum ComplianceStatus {
+  COMPLIANT = 'COMPLIANT',
+  NON_COMPLIANT_MINOR = 'NON_COMPLIANT_MINOR',
+  NON_COMPLIANT_MAJOR = 'NON_COMPLIANT_MAJOR',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  EXEMPTED = 'EXEMPTED',
+}

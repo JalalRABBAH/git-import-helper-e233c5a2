@@ -1,0 +1,88 @@
+# ============================================================================
+# Prometheus — Configuration de scraping
+# ============================================================================
+# Version Docker Compose (développement local)
+# ============================================================================
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    environment: development
+    cluster: ireg-moto-bf-local
+
+# Règles d'alerte
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# Configuration Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+scrape_configs:
+  # === Prometheus lui-même ===
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # === Backend API ===
+  - job_name: 'ireg-backend'
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # === PostgreSQL Exporter ===
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # === Redis Exporter ===
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # === RabbitMQ (built-in prometheus) ===
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+
+  # === Nginx ===
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    metrics_path: /metrics
+
+  # === Node Exporter (hôte) ===
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # === Cadvisor (conteneurs) ===
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # === Blackbox Exporter (healthchecks) ===
+  - job_name: 'blackbox-api'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://app:3000/health
+        - http://nginx:80/health
+        - http://web:8080/
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance

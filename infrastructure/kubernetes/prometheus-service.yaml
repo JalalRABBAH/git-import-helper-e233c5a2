@@ -1,0 +1,22 @@
+# ============================================================================
+# Prometheus — Service
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: ireg-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: ireg-moto-bf
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP

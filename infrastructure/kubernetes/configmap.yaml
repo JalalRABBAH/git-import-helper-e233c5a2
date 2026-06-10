@@ -1,0 +1,163 @@
+# ============================================================================
+# iReg Moto BF — ConfigMap (Variables non sensibles)
+# ============================================================================
+# Toutes les valeurs ici sont NON SENSIBLES et peuvent être versionnées
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ireg-backend-config
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: ireg-backend
+    app.kubernetes.io/component: config
+data:
+  # Environnement
+  NODE_ENV: "production"
+  TZ: "Africa/Ouagadougou"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+  # API
+  API_PORT: "3000"
+  API_PREFIX: "/api/v1"
+  TRUST_PROXY: "true"
+
+  # Base de données (hors credentials)
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "ireg_moto_bf"
+  DB_POOL_MIN: "5"
+  DB_POOL_MAX: "20"
+  DB_IDLE_TIMEOUT: "30000"
+  DB_CONNECTION_TIMEOUT: "5000"
+  DB_SSL_MODE: "require"
+
+  # Redis (hors credentials)
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  REDIS_TLS_ENABLED: "false"
+  REDIS_KEY_PREFIX: "ireg:"
+
+  # MinIO / S3 (hors credentials)
+  S3_ENDPOINT: "minio-service:9000"
+  S3_BUCKET: "ireg-documents"
+  S3_REGION: "af-west-1"
+  S3_USE_SSL: "false"
+  S3_FORCE_PATH_STYLE: "true"
+
+  # RabbitMQ (hors credentials)
+  RABBITMQ_HOST: "rabbitmq-service"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VHOST: "/"
+  RABBITMQ_QUEUE: "rapports-conformite"
+  RABBITMQ_EXCHANGE: "ireg.events"
+  RABBITMQ_DLX: "ireg.dlx"
+  RABBITMQ_HEARTBEAT: "60"
+
+  # Sécurité
+  JWT_EXPIRATION: "1h"
+  REFRESH_TOKEN_EXPIRY: "7d"
+  BCRYPT_ROUNDS: "12"
+  CORS_ORIGIN: "https://ireg-motobf.bf,https://app.ireg-motobf.bf"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "100"
+
+  # Features
+  ENABLE_SWAGGER: "false"
+  ENABLE_METRICS: "true"
+  METRICS_PORT: "9090"
+
+  # Mode offline (pour zones à faible connectivité)
+  OFFLINE_MODE_ENABLED: "true"
+  SYNC_INTERVAL_MINUTES: "30"
+  MAX_OFFLINE_STORAGE_MB: "500"
+  QUEUE_MAX_SIZE: "10000"
+
+  # Métriques métier
+  METRICS_BUSINESS_ENABLED: "true"
+  METRICS_BUSINESS_PREFIX: "ireg_business"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ireg-frontend-config
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: ireg-frontend
+    app.kubernetes.io/component: config
+data:
+  # Runtime config (sera monté comme JSON ou injecté)
+  REACT_APP_ENV: "production"
+  REACT_APP_API_URL: "https://ireg-motobf.bf/api/v1"
+  REACT_APP_S3_ENDPOINT: "https://s3.ireg-motobf.bf"
+  REACT_APP_RABBITMQ_WS_URL: "wss://ws.ireg-motobf.bf/ws"
+  REACT_APP_VERSION: "1.0.0"
+  REACT_APP_OFFLINE_MODE: "true"
+  REACT_APP_LANGUAGE_DEFAULT: "fr"
+  REACT_APP_TIMEZONE: "Africa/Ouagadougou"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: config
+data:
+  # Configuration montée via nginx-configmap.yaml détaillé
+  # Ce ConfigMap contient les variables d'environnement pour Nginx
+  NGINX_WORKER_PROCESSES: "auto"
+  NGINX_WORKER_CONNECTIONS: "1024"
+  NGINX_CLIENT_MAX_BODY_SIZE: "50m"
+  NGINX_KEEPALIVE_TIMEOUT: "65"
+  NGINX_SSL_PROTOCOLS: "TLSv1.3"
+  NGINX_SSL_CIPHERS: "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
+  NGINX_ENABLE_GZIP: "true"
+  NGINX_ENABLE_BROTLI: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: config
+data:
+  # Tuning PostgreSQL pour charges africaines (latence réseau potentielle)
+  POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=fr_FR.UTF-8"
+  PG_STAT_STATEMENTS_TRACK: "all"
+  PG_STAT_STATEMENTS_MAX: "10000"
+  # Paramètres de performance
+  PG_SHARED_BUFFERS: "256MB"
+  PG_EFFECTIVE_CACHE_SIZE: "768MB"
+  PG_WORK_MEM: "16MB"
+  PG_MAINTENANCE_WORK_MEM: "64MB"
+  PG_MAX_CONNECTIONS: "100"
+  PG_WAL_BUFFERS: "16MB"
+  PG_CHECKPOINT_COMPLETION_TARGET: "0.9"
+  PG_RANDOM_PAGE_COST: "1.1"
+  PG_EFFECTIVE_IO_CONCURRENCY: "200"
+  PG_MIN_WAL_SIZE: "1GB"
+  PG_MAX_WAL_SIZE: "4GB"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: config
+data:
+  REDIS_MAXMEMORY: "512mb"
+  REDIS_MAXMEMORY_POLICY: "allkeys-lru"
+  REDIS_APPENDONLY: "yes"
+  REDIS_APPENDFSYNC: "everysec"
+  REDIS_SAVE_900: "1"
+  REDIS_SAVE_300: "10"
+  REDIS_SAVE_60: "10000"
+  REDIS_TCP_KEEPALIVE: "300"

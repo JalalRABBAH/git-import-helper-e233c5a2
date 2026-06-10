@@ -1,0 +1,83 @@
+# ============================================================================
+# Grafana — DataSources Configuration
+# ============================================================================
+# Provisionnement automatique des sources de données
+# ============================================================================
+
+apiVersion: 1
+
+datasources:
+  # === Prometheus ===
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus-service:9090
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+      manageAlerts: true
+      alertmanagerUid: alertmanager
+      prometheusType: Prometheus
+      cacheLevel: 'High'
+      incrementalQuerying: true
+
+  # === Loki (Logs) ===
+  - name: Loki
+    type: loki
+    uid: loki
+    url: http://loki:3100
+    access: proxy
+    editable: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: '$${__value.raw}'
+
+  # === Alertmanager ===
+  - name: Alertmanager
+    type: alertmanager
+    uid: alertmanager
+    url: http://alertmanager:9093
+    access: proxy
+    editable: false
+    jsonData:
+      implementation: prometheus
+
+  # === PostgreSQL (données métier) ===
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    url: postgres-service:5432
+    user: grafana_readonly
+    editable: false
+    secureJsonData:
+      password: '${GRAFANA_DB_PASSWORD}'
+    jsonData:
+      database: ireg_moto_bf
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+
+  # === Jaeger / Tempo (Tracing - optionnel) ===
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    url: http://tempo:3200
+    access: proxy
+    editable: false
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['pod', 'namespace']
+        mappedTags: [{ key: 'service.name', value: 'service' }]
+        mapTagNamesEnabled: false
+        spanStartTimeShift: '1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: false
+        filterBySpanID: false

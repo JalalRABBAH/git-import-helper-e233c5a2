@@ -1,0 +1,60 @@
+# ============================================================================
+# iReg Moto BF — Namespaces Kubernetes
+# ============================================================================
+# Ségrégation des environnements pour isolation et sécurité
+# ============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: ireg-moto-bf
+    app.kubernetes.io/component: platform
+    app.kubernetes.io/environment: production
+    app.kubernetes.io/managed-by: kubernetes
+    app.kubernetes.io/version: "1.0.0"
+    # Labels de sécurité
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    description: "Plateforme iReg Moto BF - Environnement de production"
+    contact: "devops@ireg-motobf.bf"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ireg-moto-bf-staging
+  labels:
+    app.kubernetes.io/name: ireg-moto-bf
+    app.kubernetes.io/component: platform
+    app.kubernetes.io/environment: staging
+    app.kubernetes.io/managed-by: kubernetes
+    app.kubernetes.io/version: "1.0.0"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+  annotations:
+    description: "Plateforme iReg Moto BF - Environnement de staging"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ireg-monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/managed-by: kubernetes
+  annotations:
+    description: "Stack de monitoring (Prometheus, Grafana, Loki)"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: security
+  annotations:
+    description: "Gestion des certificats TLS via cert-manager"

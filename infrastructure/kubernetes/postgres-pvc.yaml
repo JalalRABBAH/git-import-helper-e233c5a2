@@ -1,0 +1,48 @@
+# ============================================================================
+# PostgreSQL — Persistent Volume Claim
+# ============================================================================
+# Stockage persistant avec classe de stockage adaptée
+# Recommandation : SSD pour les bases de données OLTP
+# ============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: ireg-moto-bf
+  annotations:
+    # Backup Velero / Kasten
+    backup.velero.io/backup-volumes: postgres-data
+    # Snapshot mensuel automatique (selon le CSI)
+    volume.kubernetes.io/allow-volume-expansion: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd  # À adapter selon le provider
+  resources:
+    requests:
+      storage: 50Gi
+  # Protection contre la suppression accidentelle
+  volumeMode: Filesystem
+---
+# PVC pour les backups PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: ireg-moto-bf-prod
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: backup-storage
+    app.kubernetes.io/part-of: ireg-moto-bf
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard  # Backups moins critiques en latence
+  resources:
+    requests:
+      storage: 100Gi
