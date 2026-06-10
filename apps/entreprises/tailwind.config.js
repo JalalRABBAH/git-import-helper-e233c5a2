@@ -109,6 +109,7 @@ export default {
         "playfair-display": ["Playfair Display", "Georgia", "serif"],
         "inter": ["Inter", "system-ui", "sans-serif"],
         "jetbrains-mono": ["JetBrains Mono", "'Courier New'", "monospace"],
+        "dm-sans": ["DM Sans", "Inter", "system-ui", "sans-serif"],
         sans: ["Inter", "system-ui", "sans-serif"],
         serif: ["Playfair Display", "Georgia", "serif"],
         mono: ["JetBrains Mono", "'Courier New'", "monospace"],
