@@ -1,2 +1,2 @@
 [run]
-build = "cd apps/entreprises && bun install && bun run build"
+build = "bash -lc 'cd apps/entreprises && bun install && bun run build'"
