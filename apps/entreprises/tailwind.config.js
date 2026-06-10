@@ -8,6 +8,28 @@ export default {
   theme: {
     extend: {
       colors: {
+        navy: {
+          50: "#F0F2F5", 100: "#DDE3E8", 200: "#C2CCD6", 300: "#9AABBD",
+          400: "#5C6B7A", 500: "#2D4056", 600: "#243447", 700: "#1B2838",
+          800: "#142030", 900: "#111C28",
+        },
+        terracotta: {
+          50: "#FBEEEA", 100: "#F5D5CB", 200: "#EAA995", 300: "#DE7D60",
+          400: "#D45F3F", 500: "#C04A2A", 600: "#A03D22", 700: "#7E2F1A",
+          800: "#5C2213", 900: "#3D170D",
+        },
+        gold: {
+          50: "#FBF3E0", 100: "#F4E0A8", 200: "#E8C66B", 300: "#D4A84D",
+          400: "#C9963B", 500: "#B0822F", 600: "#8B6B2A", 700: "#6B5220",
+          800: "#4A3815", 900: "#2D210C",
+        },
+        "dm-bg-primary": "#111C28",
+        "dm-bg-secondary": "#1B2838",
+        "dm-bg-tertiary": "#243447",
+        "dm-border": "#2D4056",
+        "dm-text-primary": "#E8ECF0",
+        "dm-text-secondary": "#9AABBD",
+        "dm-text-muted": "#5C6B7A",
         "institutional-navy": "#1B2838",
         "institutional-navy-light": "#243447",
         "institutional-navy-lighter": "#2D4056",
